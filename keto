@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="pl" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  
+  <!-- Konfiguracja iOS Web App (PWA) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KetoAsystent">
+  <title>KetoAsystent PRO – Osobisty Asystent Diety Ketogenicznej</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            keto: {
+              bg: '#0f172a',
+              card: '#1e293b',
+              accent: '#10b981', // Szmaragdowy (Keto OK)
+              warn: '#f59e0b',   // Bursztynowy (Uważaj)
+              danger: '#ef4444'  // Czerwony (Poza keto)
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Vue 3 & Chart.js & Ikony Phosphor -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    /* Optymalizacja pod iOS Safari */
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+    }
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    /* Ukrycie pasków przewijania przy zachowaniu funkcji */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    input, select { font-size: 16px !important; } /* Blokada auto-zoomu w iOS Safari */
+  </style>
+</head>
+<body class="antialiased selection:bg-emerald-500 selection:text-white">
+
+<div id="app" class="max-w-md mx-auto min-h-screen flex flex-col justify-between relative px-4 pt-4">
+
+  <!-- NAGŁÓWEK -->
+  <header class="flex items-center justify-between py-3 border-b border-slate-800 mb-4 sticky top-0 bg-slate-900/95 backdrop-blur z-30">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+        <i class="ph-fill ph-avocado text-2xl"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg leading-tight tracking-tight">KetoAsystent <span class="text-xs font-normal text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800">NETTO</span></h1>
+        <p class="text-xs text-slate-400">Kontrola ketozy i makroskładników</p>
+      </div>
+    </div>
+
+    <!-- Wybór daty -->
+    <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700">
+      <button @click="changeDate(-1)" class="p-1.5 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-left"></i></button>
+      <input type="date" v-model="selectedDate" class="bg-transparent text-xs font-semibold text-center w-28 focus:outline-none text-slate-200">
+      <button @click="changeDate(1)" class="p-1.5 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-right"></i></button>
+    </div>
+  </header>
+
+  <!-- GŁÓWNA ZAWARTOŚĆ (Zależna od aktywnej zakładki) -->
+  <main class="flex-1 space-y-5">
+
+    <!-- ========================================== -->
+    <!-- ZAKŁADKA 1: DZIENNIK POSIŁKÓW I DASHBOARD  -->
+    <!-- ========================================== -->
+    <div v-if="activeTab === 'diary'" class="space-y-5">
+
+      <!-- KARTA GŁÓWNA: WĘGLOWODANY NETTO (Kluczowy wskaźnik Keto) -->
+      <div class="bg-slate-800/90 border rounded-2xl p-4 shadow-lg transition-colors"
+           :class="netCarbsStatus.borderClass">
+        <div class="flex justify-between items-start mb-2">
+          <div>
+            <span class="text-xs uppercase tracking-wider font-bold text-slate-400">Główny wskaźnik ketozy</span>
+            <h2 class="text-xl font-extrabold flex items-center gap-2 mt-0.5">
+              Węglowodany Netto
+              <span class="text-xs font-semibold px-2 py-0.5 rounded-full" :class="netCarbsStatus.badgeClass">
+                {{ netCarbsStatus.label }}
+              </span>
+            </h2>
+          </div>
+          <div class="text-right">
+            <span class="text-2xl font-black" :class="netCarbsStatus.textClass">{{ dailyTotals.netCarbs.toFixed(1) }}</span>
+            <span class="text-sm text-slate-400"> / {{ targets.netCarbs }} g</span>
+          </div>
+        </div>
+
+        <!-- Pasek postępu Węglowodanów Netto -->
+        <div class="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-700">
+          <div class="h-full rounded-full transition-all duration-300"
+               :class="netCarbsStatus.barClass"
+               :style="{ width: Math.min(100, (dailyTotals.netCarbs / targets.netCarbs) * 100) + '%' }"></div>
+        </div>
+
+        <div class="flex justify-between text-xs text-slate-400 mt-2 pt-2 border-t border-slate-700/60">
+          <span>Węglowodany całk.: <strong class="text-slate-200">{{ dailyTotals.carbs.toFixed(1) }} g</strong></span>
+          <span>Błonnik (odliczany): <strong class="text-emerald-400">-{{ dailyTotals.fiber.toFixed(1) }} g</strong></span>
+          <span v-if="remainingMacro.netCarbs >= 0">Zostało: <strong class="text-emerald-300">{{ remainingMacro.netCarbs.toFixed(1) }} g</strong></span>
+          <span v-else class="text-red-400 font-bold">Przekroczono o {{ Math.abs(remainingMacro.netCarbs).toFixed(1) }} g!</span>
+        </div>
+      </div>
+
+      <!-- POZOSTAŁE MAKRO: Tłuszcz, Białko, Kalorie -->
+      <div class="grid grid-cols-3 gap-2.5">
+        <!-- Tłuszcz -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3">
+          <div class="flex justify-between items-center text-xs text-slate-400 mb-1">
+            <span>Tłuszcz (Keto)</span>
+            <i class="ph-fill ph-drop text-amber-400"></i>
+          </div>
+          <div class="font-bold text-base">{{ dailyTotals.fat.toFixed(0) }} <span class="text-xs font-normal text-slate-400">/ {{ targets.fat }}g</span></div>
+          <div class="w-full h-1.5 bg-slate-950 rounded-full mt-2 overflow-hidden">
+            <div class="h-full bg-amber-400 rounded-full" :style="{ width: Math.min(100, (dailyTotals.fat / targets.fat) * 100) + '%' }"></div>
+          </div>
+        </div>
+
+        <!-- Białko -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3">
+          <div class="flex justify-between items-center text-xs text-slate-400 mb-1">
+            <span>Białko</span>
+            <i class="ph-fill ph-barbell text-sky-400"></i>
+          </div>
+          <div class="font-bold text-base">{{ dailyTotals.protein.toFixed(0) }} <span class="text-xs font-normal text-slate-400">/ {{ targets.protein }}g</span></div>
+          <div class="w-full h-1.5 bg-slate-950 rounded-full mt-2 overflow-hidden">
+            <div class="h-full bg-sky-400 rounded-full" :style="{ width: Math.min(100, (dailyTotals.protein / targets.protein) * 100) + '%' }"></div>
+          </div>
+        </div>
+
+        <!-- Kalorie -->
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3">
+          <div class="flex justify-between items-center text-xs text-slate-400 mb-1">
+            <span>Kalorie</span>
+            <i class="ph-fill ph-fire text-rose-400"></i>
+          </div>
+          <div class="font-bold text-base">{{ dailyTotals.kcal.toFixed(0) }} <span class="text-xs font-normal text-slate-400">/ {{ targets.kcal }}</span></div>
+          <div class="w-full h-1.5 bg-slate-950 rounded-full mt-2 overflow-hidden">
+            <div class="h-full bg-rose-400 rounded-full" :style="{ width: Math.min(100, (dailyTotals.kcal / targets.kcal) * 100) + '%' }"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SZYBKI ZAPIS WAGI NA DZIŚ -->
+      <div class="bg-slate-800/50 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <i class="ph-duotone ph-scales text-xl text-emerald-400"></i>
+          <div>
+            <div class="text-xs font-semibold text-slate-200">Dzisiejsza waga ({{ selectedDate }})</div>
+            <div class="text-[11px] text-slate-400">Zapisz, aby aktualizować wykres postępów</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input type="number" step="0.1" v-model.number="todayWeightInput" placeholder="np. 84.5"
+                 class="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none">
+          <button @click="saveDailyWeight" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-lg active:scale-95 transition">
+            Zapisz
+          </button>
+        </div>
+      </div>
+
+      <!-- SEKCJE POSIŁKÓW (Podział na pory dnia) -->
+      <div class="space-y-4">
+        <div v-for="slot in mealSlots" :key="slot.id" class="bg-slate-800/70 border border-slate-700/70 rounded-2xl overflow-hidden">
+          <!-- Nagłówek posiłku -->
+          <div class="bg-slate-800 px-4 py-3 flex justify-between items-center border-b border-slate-700/60">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">{{ slot.icon }}</span>
+              <div>
+                <h3 class="font-bold text-sm leading-none">{{ slot.name }}</h3>
+                <span class="text-[11px] text-slate-400">{{ slot.hint }}</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="text-right text-xs">
+                <span class="font-bold text-emerald-400">{{ getSlotTotals(slot.id).netCarbs.toFixed(1) }}g W.Netto</span>
+                <span class="text-slate-400 block">{{ getSlotTotals(slot.id).kcal.toFixed(0) }} kcal</span>
+              </div>
+              <button @click="openAddModal(slot.id)" class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center hover:bg-emerald-500 hover:text-white active:scale-90 transition">
+                <i class="ph-bold ph-plus"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista dodanych produktów w posiłku -->
+          <div class="divide-y divide-slate-700/40">
+            <div v-if="getSlotEntries(slot.id).length === 0" class="py-4 text-center text-xs text-slate-500 italic">
+              Brak wpisów. Kliknij "+", aby dodać produkt.
+            </div>
+            <div v-for="entry in getSlotEntries(slot.id)" :key="entry.entryId" class="px-4 py-2.5 flex justify-between items-center">
+              <div class="pr-2">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full" :class="getKetoBadgeColor(entry.food)"></span>
+                  <span class="font-semibold text-sm text-slate-100">{{ entry.food.name }}</span>
+                  <span class="text-xs text-slate-400">({{ entry.grams }} g)</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5 flex gap-2">
+                  <span class="text-emerald-400 font-semibold">W.Netto: {{ calcEntryNetCarbs(entry).toFixed(1) }}g</span>
+                  <span>(W: {{ calcMacro(entry.food.carbs, entry.grams) }}g | Bł: {{ calcMacro(entry.food.fiber, entry.grams) }}g)</span>
+                  <span>T: {{ calcMacro(entry.food.fat, entry.grams) }}g</span>
+                  <span>B: {{ calcMacro(entry.food.protein, entry.grams) }}g</span>
+                </div>
+                <!-- Ostrzeżenie i zamiennik jeśli produkt nie-keto -->
+                <div v-if="entry.food.substitute" class="text-[11px] text-amber-300/90 bg-amber-950/50 border border-amber-800/50 rounded px-2 py-0.5 mt-1 inline-block">
+                  💡 Zamiennik keto: <strong>{{ entry.food.substitute }}</strong>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs font-bold text-slate-300">{{ calcMacro(entry.food.kcal, entry.grams).toFixed(0) }} kcal</span>
+                <button @click="removeDiaryEntry(entry.entryId)" class="text-slate-500 hover:text-red-400 p-1">
+                  <i class="ph-bold ph-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ZAKŁADKA 2: ASYSTENT KETO I PORADY         -->
+    <!-- ========================================== -->
+    <div v-if="activeTab === 'advisor'" class="space-y-5">
+      <div class="bg-gradient-to-br from-emerald-950/80 to-slate-900 border border-emerald-700/50 rounded-2xl p-4 shadow-lg">
+        <div class="flex items-center gap-2 text-emerald-400 font-bold text-sm mb-1">
+          <i class="ph-fill ph-sparkle text-lg"></i>
+          <span>Inteligentna Analiza Twojego Dnia ({{ selectedDate }})</span>
+        </div>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          {{ dailyAdviceSummary }}
+        </p>
+      </div>
+
+      <!-- Co jeszcze zmieścisz w dzisiejszym limicie? -->
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="font-bold text-sm text-white">🎯 Co jeszcze zmieścisz w dzisiejszym limicie?</h3>
+            <p class="text-xs text-slate-400">
+              Pozostały budżet: <strong class="text-emerald-400">{{ Math.max(0, remainingMacro.netCarbs).toFixed(1) }} g węglowodanów netto</strong>
+              oraz <strong class="text-amber-400">{{ Math.max(0, remainingMacro.fat).toFixed(0) }} g tłuszczu</strong>.
+            </p>
+          </div>
+        </div>
+
+        <div v-if="remainingMacro.netCarbs <= 0" class="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-xs text-red-200">
+          ⚠️ Wykorzystałeś dzisiejszy limit węglowodanów netto! Jeśli jesteś głodny, wybierz produkty <strong>Zero-Carb</strong>: czyste mięso, ryby, jajka, masło klarowane, oliwę lub ser twardy.
+        </div>
+
+        <div class="space-y-2">
+          <div v-for="sug in smartFoodSuggestions" :key="sug.food.id"
+               class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex justify-between items-center">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span class="font-bold text-sm">{{ sug.food.name }}</span>
+                <span class="text-xs text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded">Porcja: {{ sug.portion }}g</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">{{ sug.reason }}</p>
+              <div class="text-[11px] text-slate-300 mt-1 flex gap-3">
+                <span>W.Netto: <strong>{{ sug.netCarbs }}g</strong></span>
+                <span>Tłuszcz: <strong>{{ sug.fat }}g</strong></span>
+                <span>Białko: <strong>{{ sug.protein }}g</strong></span>
+                <span><strong>{{ sug.kcal }} kcal</strong></span>
+              </div>
+            </div>
+            <button @click="quickAddSuggestion(sug.food, sug.portion)"
+                    class="bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600 hover:text-white text-xs font-bold px-2.5 py-2 rounded-xl shrink-0 transition">
+              + Dodaj
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wskazówki dotyczące rozkładu pór żywienia i makro -->
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <h3 class="font-bold text-sm text-white flex items-center gap-2">
+          <i class="ph-fill ph-clock-countdown text-emerald-400 text-lg"></i>
+          Strategia rozkładu makro w ciągu dnia (Keto & IF)
+        </h3>
+        <div class="space-y-2.5 text-xs text-slate-300">
+          <div class="p-3 bg-slate-900/70 rounded-xl border border-slate-800">
+            <strong class="text-emerald-400 block mb-0.5">1. Pierwszy posiłek (Śniadanie / Otwarcie okna IF):</strong>
+            Postaw na białko i nasycone/jednonienasycone tłuszcze przy minimalnej ilości węglowodanów (<strong class="text-white">do {{ (targets.netCarbs * 0.2).toFixed(0) }}g W.Netto</strong>). Jajka na boczku lub maśle z połową awokado zapobiegają wyrzutom insuliny rano i utrzymują sytość przez 5–6 godzin.
+          </div>
+          <div class="p-3 bg-slate-900/70 rounded-xl border border-slate-800">
+            <strong class="text-amber-400 block mb-0.5">2. Główny posiłek (Obiad – ok. 45% energii):</strong>
+            Najlepszy moment na główną porcję białka (mięso/ryba) oraz zieleninę (brokuły, szpinak, kiszonki) polaną obficie oliwą lub masłem (<strong class="text-white">ok. {{ (targets.netCarbs * 0.5).toFixed(0) }}g W.Netto</strong>). Błonnik z warzyw spowolni wchłanianie.
+          </div>
+          <div class="p-3 bg-slate-900/70 rounded-xl border border-slate-800">
+            <strong class="text-sky-400 block mb-0.5">3. Kolacja i Przekąski (Zamknięcie dnia – ok. 30%):</strong>
+            Zostaw bufor <strong class="text-white">ok. {{ (targets.netCarbs * 0.3).toFixed(0) }}g W.Netto</strong> na wieczór (np. sałatka z łososiem lub kontrolowana porcja orzechów makadamia / pekan). Unikaj nadmiaru białka bezpośrednio przed snem, aby nie pobudzać glukoneogenezy w nocy.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ZAKŁADKA 3: BAZA PRODUKTÓW + OPEN FOOD FACTS-->
+    <!-- ========================================== -->
+    <div v-if="activeTab === 'foods'" class="space-y-4">
+
+      <!-- Wyszukiwarka lokalna + Filtr -->
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3 space-y-2.5">
+        <div class="relative">
+          <i class="ph-bold ph-magnifying-glass absolute left-3 top-3 text-slate-400"></i>
+          <input type="text" v-model="foodSearchQuery" placeholder="Szukaj w bazie (np. awokado, makadamia, chleb)..."
+                 class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+        </div>
+        <div class="flex gap-1.5 overflow-x-auto no-scrollbar text-xs">
+          <button @click="foodFilter = 'all'" :class="foodFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">Wszystkie ({{ foods.length }})</button>
+          <button @click="foodFilter = 'keto'" :class="foodFilter === 'keto' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟢 Idealne Keto</button>
+          <button @click="foodFilter = 'moderate'" :class="foodFilter === 'moderate' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟡 Umiarkowane</button>
+          <button @click="foodFilter = 'avoid'" :class="foodFilter === 'avoid' ? 'bg-red-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🔴 Wysokowęglowodanowe (Zamienniki)</button>
+        </div>
+      </div>
+
+      <!-- Przyciski: Dodaj własny produkt / Szukaj w Open Food Facts API -->
+      <div class="grid grid-cols-2 gap-2">
+        <button @click="showCustomFoodForm = !showCustomFoodForm"
+                class="bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-xs font-bold flex items-center justify-center gap-1.5 text-emerald-400">
+          <i class="ph-bold ph-plus-circle text-base"></i> Dodaj własny produkt
+        </button>
+        <button @click="showOffSearch = !showOffSearch"
+                class="bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-xs font-bold flex items-center justify-center gap-1.5 text-sky-400">
+          <i class="ph-bold ph-globe text-base"></i> Szukaj w OpenFoodFacts
+        </button>
+      </div>
+
+      <!-- Sekcja integracji z zewnętrznym API: Open Food Facts -->
+      <div v-if="showOffSearch" class="bg-slate-800 border border-sky-500/40 rounded-2xl p-4 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-sky-400">🌐 Wyszukiwarka Open Food Facts (Polska)</h3>
+          <button @click="showOffSearch = false" class="text-slate-400 text-xs">Zamknij</button>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" v-model="offQuery" @keyup.enter="searchOpenFoodFacts" placeholder="Wpisz nazwę lub markę (np. Alesto, Piątnica)..."
+                 class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+          <button @click="searchOpenFoodFacts" :disabled="offLoading"
+                  class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-4 rounded-xl text-xs shrink-0">
+            {{ offLoading ? 'Szukam...' : 'Szukaj API' }}
+          </button>
+        </div>
+        <p v-if="offError" class="text-xs text-red-400">{{ offError }}</p>
+        <div v-if="offResults.length > 0" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+          <div v-for="(item, idx) in offResults" :key="idx" class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+            <div>
+              <div class="font-bold text-slate-200">{{ item.name }}</div>
+              <div class="text-slate-400">
+                100g: {{ item.kcal }} kcal | W.Netto: <strong class="text-emerald-400">{{ Math.max(0, item.carbs - item.fiber).toFixed(1) }}g</strong> (W:{{ item.carbs }}g, Bł:{{ item.fiber }}g) | T:{{ item.fat }}g | B:{{ item.protein }}g
+              </div>
+            </div>
+            <button @click="importFromOff(item)" class="bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg font-bold shrink-0 ml-2">
+              Zapisz w bazie
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formularz dodawania własnego produktu -->
+      <div v-if="showCustomFoodForm" class="bg-slate-800 border border-emerald-500/40 rounded-2xl p-4 space-y-3">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Nowy produkt (wartości na 100 g)</h3>
+        <input type="text" v-model="newFood.name" placeholder="Nazwa produktu (np. Kiełbasa wiejska)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[11px] text-slate-400">Kalorie (kcal/100g)</label>
+            <input type="number" step="1" v-model.number="newFood.kcal" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Tłuszcz (g/100g)</label>
+            <input type="number" step="0.1" v-model.number="newFood.fat" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Węglowodany CAŁK. (g/100g)</label>
+            <input type="number" step="0.1" v-model.number="newFood.carbs" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="text-[11px] text-emerald-400 font-semibold">Błonnik (g/100g)</label>
+            <input type="number" step="0.1" v-model.number="newFood.fiber" class="w-full bg-slate-900 border border-emerald-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Białko (g/100g)</label>
+            <input type="number" step="0.1" v-model.number="newFood.protein" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-400">Zamiennik (opcjonalnie)</label>
+            <input type="text" v-model="newFood.substitute" placeholder="np. Makaron konjac" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+          </div>
+        </div>
+        <input type="text" v-model="newFood.tip" placeholder="Wskazówka keto (np. Świetne źródło tłuszczu)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+        <button @click="addCustomFood" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-sm">
+          Zapisz produkt w bazie
+        </button>
+      </div>
+
+      <!-- Lista produktów w bazie -->
+      <div class="space-y-2.5">
+        <div v-for="food in filteredFoods" :key="food.id" class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 space-y-2">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm text-white">{{ food.name }}</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(food).class">
+                  {{ getKetoLabelStyle(food).text }}
+                </span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">{{ food.tip }}</p>
+            </div>
+            <button @click="openQuickAddFromDb(food)" class="bg-emerald-500/20 hover:bg-emerald-500 hover:text-white text-emerald-400 border border-emerald-500/40 rounded-lg px-2.5 py-1 text-xs font-bold shrink-0 transition">
+              + Do dziennika
+            </button>
+          </div>
+
+          <!-- Makro na 100g -->
+          <div class="grid grid-cols-5 gap-1 pt-2 border-t border-slate-700/60 text-center text-[11px]">
+            <div class="bg-slate-900/90 rounded p-1">
+              <span class="text-slate-400 block">W.Netto</span>
+              <strong class="text-emerald-400 text-xs">{{ getNetCarbs(food).toFixed(1) }}g</strong>
+            </div>
+            <div class="bg-slate-900/90 rounded p-1">
+              <span class="text-slate-400 block">Węg.Całk</span>
+              <strong class="text-slate-200">{{ food.carbs }}g</strong>
+            </div>
+            <div class="bg-slate-900/90 rounded p-1">
+              <span class="text-slate-400 block">Błonnik</span>
+              <strong class="text-slate-200">{{ food.fiber }}g</strong>
+            </div>
+            <div class="bg-slate-900/90 rounded p-1">
+              <span class="text-slate-400 block">Tłuszcz</span>
+              <strong class="text-amber-400">{{ food.fat }}g</strong>
+            </div>
+            <div class="bg-slate-900/90 rounded p-1">
+              <span class="text-slate-400 block">Białko</span>
+              <strong class="text-sky-400">{{ food.protein }}g</strong>
+            </div>
+          </div>
+
+          <!-- Sugerowany zamiennik dla produktów zakazanych na keto -->
+          <div v-if="food.substitute" class="bg-amber-950/50 border border-amber-700/50 rounded-xl p-2 text-xs text-amber-200 flex items-center gap-2">
+            <i class="ph-fill ph-arrows-left-right text-amber-400 text-base shrink-0"></i>
+            <span><strong>Zamiennik Keto:</strong> Zamiast tego wybierz <u>{{ food.substitute }}</u>.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ZAKŁADKA 4: HISTORIA I WYKRESY             -->
+    <!-- ========================================== -->
+    <div v-if="activeTab === 'charts'" class="space-y-5">
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4">
+        <h3 class="font-bold text-sm text-white mb-1">📉 Historia Węglowodanów Netto (Ostatnie 7 dni)</h3>
+        <p class="text-xs text-slate-400 mb-3">Kontrola utrzymania progu ketozy (cel: {{ targets.netCarbs }}g)</p>
+        <div class="h-48">
+          <canvas id="carbsChart"></canvas>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4">
+        <h3 class="font-bold text-sm text-white mb-1">🔥 Spożycie Kalorii i Makro (Ostatnie 7 dni)</h3>
+        <p class="text-xs text-slate-400 mb-3">Porównanie z dziennym celem ({{ targets.kcal }} kcal)</p>
+        <div class="h-48">
+          <canvas id="kcalChart"></canvas>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4">
+        <h3 class="font-bold text-sm text-white mb-1">⚖️ Pomiary Wagi Ciała w Czasie</h3>
+        <p class="text-xs text-slate-400 mb-3">Trend zmiany masy ciała</p>
+        <div class="h-48">
+          <canvas id="weightChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ZAKŁADKA 5: PROFIL I KONFIGURACJA KETO     -->
+    <!-- ========================================== -->
+    <div v-if="activeTab === 'profile'" class="space-y-5">
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 space-y-4">
+        <h2 class="font-bold text-base text-white flex items-center gap-2">
+          <i class="ph-fill ph-user-gear text-emerald-400 text-xl"></i>
+          Parametry ciała i styl życia
+        </h2>
+
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="text-slate-400 block mb-1">Płeć</label>
+            <select v-model="profile.gender" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+              <option value="male">Mężczyzna</option>
+              <option value="female">Kobieta</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-slate-400 block mb-1">Wiek (lata)</label>
+            <input type="number" v-model.number="profile.age" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+          </div>
+          <div>
+            <label class="text-slate-400 block mb-1">Wzrost (cm)</label>
+            <input type="number" v-model.number="profile.height" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+          </div>
+          <div>
+            <label class="text-slate-400 block mb-1">Aktualna waga (kg)</label>
+            <input type="number" step="0.1" v-model.number="profile.weight" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+          </div>
+        </div>
+
+        <div class="text-xs">
+          <label class="text-slate-400 block mb-1">Poziom aktywności fizycznej</label>
+          <select v-model.number="profile.activity" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            <option :value="1.2">1.2 – Praca siedząca, brak treningów</option>
+            <option :value="1.375">1.375 – Praca siedząca + lekka aktywność (np. marsz na bieżni 3-5x w tyg.)</option>
+            <option :value="1.55">1.55 – Umiarkowana aktywność (regularne treningi 3-5x w tyg.)</option>
+            <option :value="1.725">1.725 – Wysoka aktywność (ciężkie treningi lub praca fizyczna)</option>
+          </select>
+        </div>
+
+        <div class="text-xs">
+          <label class="text-slate-400 block mb-1">Cel sylwetkowy</label>
+          <select v-model="profile.goal" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            <option value="cut">Redukcja tkanki tłuszczowej (-15% kcal)</option>
+            <option value="maintain">Utrzymanie wagi i rekompozycja (0%)</option>
+            <option value="bulk">Przyrost masy mięśniowej (+10% kcal)</option>
+          </select>
+        </div>
+
+        <button @click="recalculateKetoTargets"
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow transition active:scale-98">
+          🔄 Przelicz i zastosuj proponowane cele Keto (Mifflin-St Jeor)
+        </button>
+      </div>
+
+      <!-- Ręczna konfiguracja celów makro i progu węglowodanów netto -->
+      <div class="bg-slate-800/90 border border-emerald-500/40 rounded-2xl p-4 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="font-bold text-sm text-emerald-400">🎯 Twoje dzienne cele Keto (Edycja ręczna)</h3>
+          <span class="text-[11px] text-slate-400">Możesz dostosować własny próg</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="text-emerald-300 font-bold block mb-1">Limit Węglowodanów NETTO (g)</label>
+            <input type="number" v-model.number="targets.netCarbs" @change="saveAll"
+                   class="w-full bg-slate-900 border border-emerald-500 rounded-xl px-3 py-2 text-emerald-300 font-bold">
+            <span class="text-[10px] text-slate-400">Strict Keto: 20g | Standard: 30g | Active: 50g</span>
+          </div>
+          <div>
+            <label class="text-slate-300 block mb-1">Kalorie (kcal)</label>
+            <input type="number" v-model.number="targets.kcal" @change="saveAll"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-bold">
+          </div>
+          <div>
+            <label class="text-amber-300 block mb-1">Tłuszcz (g)</label>
+            <input type="number" v-model.number="targets.fat" @change="saveAll"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+          </div>
+          <div>
+            <label class="text-sky-300 block mb-1">Białko (g)</label>
+            <input type="number" v-model.number="targets.protein" @change="saveAll"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+          </div>
+        </div>
+      </div>
+
+      <!-- Zarządzanie danymi (Kopia zapasowa JSON) -->
+      <div class="bg-slate-800/60 border border-slate-700 rounded-2xl p-4 space-y-3 text-xs">
+        <h3 class="font-bold text-slate-200">💾 Trwałość danych i kopia zapasowa</h3>
+        <p class="text-slate-400">Wszystkie dane zapisują się automatycznie w pamięci Twojego telefonu (localStorage). Możesz też pobrać plik zapasowy.</p>
+        <div class="flex gap-2">
+          <button @click="exportData" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-xl font-semibold">
+            ⬇️ Eksportuj JSON
+          </button>
+          <label class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-xl font-semibold text-center cursor-pointer">
+            ⬆️ Importuj JSON
+            <input type="file" @change="importData" accept=".json" class="hidden">
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- KLAUZULA INFORMACYJNA / MEDYCZNA -->
+    <footer class="pt-4 pb-6 text-center text-[11px] text-slate-500 border-t border-slate-800/80 space-y-1">
+      <p><strong>Ważna informacja:</strong> Aplikacja KetoAsystent ma wyłącznie charakter pomocniczy, edukacyjny i informacyjny. Obliczenia zapotrzebowania oraz sugestie żywieniowe nie stanowią porady medycznej i nie zastępują konsultacji z lekarzem lub wykwalifikowanym dietetykiem klinicznym.</p>
+    </footer>
+
+  </main>
+
+  <!-- MODAL DODAWANIA PRODUKTU DO POSIŁKU -->
+  <div v-if="addModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4 max-h-[88vh] flex flex-col">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-base text-white">Dodaj do posiłku: <span class="text-emerald-400">{{ getSlotName(addModal.slotId) }}</span></h3>
+        <button @click="addModal.open = false" class="text-slate-400 hover:text-white p-1"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <!-- Wybór pory dnia (jeśli otwarto z bazy produktów) -->
+      <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+        <button v-for="s in mealSlots" :key="s.id" @click="addModal.slotId = s.id"
+                :class="addModal.slotId === s.id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold shrink-0">
+          {{ s.icon }} {{ s.name }}
+        </button>
+      </div>
+
+      <!-- Wyszukiwarka w modalu -->
+      <input type="text" v-model="addModal.search" placeholder="Wyszukaj produkt..."
+             class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none">
+
+      <!-- Gramatura + szybkie przyciski wagowe -->
+      <div class="bg-slate-800/80 rounded-xl p-3 flex items-center justify-between border border-slate-700">
+        <span class="text-xs font-semibold text-slate-300">Ilość (gramy):</span>
+        <div class="flex items-center gap-1.5">
+          <button v-for="g in [30, 50, 100, 150, 200]" :key="g" @click="addModal.grams = g"
+                  :class="addModal.grams === g ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'"
+                  class="px-2 py-1 rounded text-xs font-bold">{{ g }}g</button>
+          <input type="number" v-model.number="addModal.grams" class="w-16 bg-slate-950 border border-emerald-500/60 rounded-lg px-2 py-1 text-center text-sm font-bold text-emerald-300">
+        </div>
+      </div>
+
+      <!-- Lista wyboru produktu -->
+      <div class="overflow-y-auto space-y-2 flex-1 pr-1">
+        <div v-for="food in modalFilteredFoods" :key="food.id"
+             class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center">
+          <div class="pr-2">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full" :class="getKetoBadgeColor(food)"></span>
+              <span class="font-bold text-sm text-white">{{ food.name }}</span>
+            </div>
+            <div class="text-[11px] text-slate-400 mt-0.5">
+              W porcji <strong>{{ addModal.grams }}g</strong>:
+              <span class="text-emerald-400 font-bold">W.Netto: {{ ((getNetCarbs(food) * addModal.grams) / 100).toFixed(1) }}g</span> |
+              T: {{ ((food.fat * addModal.grams) / 100).toFixed(1) }}g |
+              B: {{ ((food.protein * addModal.grams) / 100).toFixed(1) }}g |
+              {{ ((food.kcal * addModal.grams) / 100).toFixed(0) }} kcal
+            </div>
+          </div>
+          <button @click="confirmAddFood(food)"
+                  class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-2 rounded-xl text-xs shrink-0 active:scale-95 transition">
+            Dodaj
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOLNY PASEK NAWIGACJI (Styl iOS Tab Bar) -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 safe-bottom z-40">
+    <div class="max-w-md mx-auto grid grid-cols-5 py-1.5">
+      <button @click="switchTab('diary')" :class="activeTab === 'diary' ? 'text-emerald-400' : 'text-slate-400'" class="flex flex-col items-center py-1">
+        <i class="text-xl" :class="activeTab === 'diary' ? 'ph-fill ph-notebook' : 'ph ph-notebook'"></i>
+        <span class="text-[10px] font-semibold mt-0.5">Dziennik</span>
+      </button>
+      <button @click="switchTab('advisor')" :class="activeTab === 'advisor' ? 'text-emerald-400' : 'text-slate-400'" class="flex flex-col items-center py-1">
+        <i class="text-xl" :class="activeTab === 'advisor' ? 'ph-fill ph-sparkle' : 'ph ph-sparkle'"></i>
+        <span class="text-[10px] font-semibold mt-0.5">Asystent</span>
+      </button>
+      <button @click="switchTab('foods')" :class="activeTab === 'foods' ? 'text-emerald-400' : 'text-slate-400'" class="flex flex-col items-center py-1">
+        <i class="text-xl" :class="activeTab === 'foods' ? 'ph-fill ph-cooking-pot' : 'ph ph-cooking-pot'"></i>
+        <span class="text-[10px] font-semibold mt-0.5">Produkty</span>
+      </button>
+      <button @click="switchTab('charts')" :class="activeTab === 'charts' ? 'text-emerald-400' : 'text-slate-400'" class="flex flex-col items-center py-1">
+        <i class="text-xl" :class="activeTab === 'charts' ? 'ph-fill ph-chart-line-up' : 'ph ph-chart-line-up'"></i>
+        <span class="text-[10px] font-semibold mt-0.5">Wykresy</span>
+      </button>
+      <button @click="switchTab('profile')" :class="activeTab === 'profile' ? 'text-emerald-400' : 'text-slate-400'" class="flex flex-col items-center py-1">
+        <i class="text-xl" :class="activeTab === 'profile' ? 'ph-fill ph-sliders-horizontal' : 'ph ph-sliders-horizontal'"></i>
+        <span class="text-[10px] font-semibold mt-0.5">Profil/Cele</span>
+      </button>
+    </div>
+  </nav>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted } = Vue;
+
+// Wbudowana baza typowych polskich produktów Keto oraz produktów wysokowęglowodanowych z zamiennikami
+const DEFAULT_FOODS = [
+  // IDEALNE KETO
+  { id: 'f1', name: 'Jajka kurze całe (ok. 1 szt. = 55g)', kcal: 143, fat: 9.5, carbs: 0.7, fiber: 0, protein: 12.6, tip: 'Złoty standard keto. Idealny stosunek białka i tłuszczu oraz cholina.', substitute: '' },
+  { id: 'f2', name: 'Awokado Hass', kcal: 160, fat: 14.7, carbs: 8.5, fiber: 6.7, protein: 2.0, tip: 'Aż 6.7g błonnika! Tylko 1.8g węglowodanów netto na 100g i mnóstwo potasu.', substitute: '' },
+  { id: 'f3', name: 'Boczek wieprzowy wędzony/surowy', kcal: 460, fat: 45.0, carbs: 0.5, fiber: 0, protein: 13.0, tip: 'Świetne paliwo ketogeniczne do jajecznicy lub sałatek.', substitute: '' },
+  { id: 'f4', name: 'Łosoś świeży / wędzony', kcal: 208, fat: 13.0, carbs: 0, fiber: 0, protein: 20.0, tip: 'Bogaty w kwasy Omega-3 i pełnowartościowe białko, 0g węglowodanów.', substitute: '' },
+  { id: 'f5', name: 'Orzechy Makadamia (prażone, solone)', kcal: 718, fat: 75.8, carbs: 13.8, fiber: 8.6, protein: 7.9, tip: 'Królowie orzechów na keto: najwięcej tłuszczu, tylko 5.2g W.Netto/100g.', substitute: '' },
+  { id: 'f6', name: 'Orzechy Pekan (Pecan)', kcal: 691, fat: 72.0, carbs: 13.9, fiber: 9.6, protein: 9.2, tip: 'Znakomite na keto – niski indeks glikemiczny i tylko 4.3g W.Netto/100g.', substitute: '' },
+  { id: 'f7', name: 'Masło ekstra 82% / Masło klarowane Ghee', kcal: 748, fat: 82.5, carbs: 0.7, fiber: 0, protein: 0.7, tip: 'Czysta energia ketogeniczna (kwasy krótko- i średniołańcuchowe).', substitute: '' },
+  { id: 'f8', name: 'Oliwa z oliwek Extra Virgin / Olej MCT', kcal: 884, fat: 100.0, carbs: 0, fiber: 0, protein: 0, tip: 'Niezbędna do podbijania makro tłuszczu w sałatkach i warzywach.', substitute: '' },
+  { id: 'f9', name: 'Karkówka wieprzowa / Antrykot wołowy', kcal: 267, fat: 20.0, carbs: 0, fiber: 0, protein: 21.0, tip: 'Idealne mięso obiadowe na keto – zawiera naturalny tłuszcz śródmięśniowy.', substitute: '' },
+  { id: 'f10', name: 'Pierś z kurczaka / indyka (bez skóry)', kcal: 110, fat: 1.3, carbs: 0, fiber: 0, protein: 23.0, tip: 'Czyste białko. Na keto łącz z masłem czosnkowym, pesto lub oliwą.', substitute: '' },
+  { id: 'f11', name: 'Ser Gouda / Cheddar pełnotłusty', kcal: 356, fat: 27.4, carbs: 1.5, fiber: 0, protein: 25.0, tip: 'Świetna szybka przekąska białkowo-tłuszczowa.', substitute: '' },
+  { id: 'f12', name: 'Serek Mascarpone (np. Piątnica)', kcal: 398, fat: 40.0, carbs: 2.8, fiber: 0, protein: 4.8, tip: 'Genialna baza do keto deserów, sosów i naleśników.', substitute: '' },
+  { id: 'f13', name: 'Brokuły / Kalafior', kcal: 34, fat: 0.4, carbs: 6.6, fiber: 2.6, protein: 2.8, tip: 'Bezpieczne warzywo keto (4g W.Netto). Znakomity nośnik dla masła lub sosu serowego.', substitute: '' },
+  { id: 'f14', name: 'Kapusta kiszona / Ogórki kiszone', kcal: 19, fat: 0.2, carbs: 4.3, fiber: 2.9, protein: 0.9, tip: 'Polski superfood na keto! Fermentacja obniża cukry (tylko 1.4g W.Netto) i wspiera mikrobiom.', substitute: '' },
+  { id: 'f15', name: 'Szpinak świeży / Rukola / Mix sałat', kcal: 23, fat: 0.4, carbs: 3.6, fiber: 2.2, protein: 2.9, tip: 'Prawie zerowy ładunek węglowodanów netto (1.4g). Jedz bez obaw o ketozę.', substitute: '' },
+
+  // UMIARKOWANE KETO (Kontroluj porcję!)
+  { id: 'f16', name: 'Pistacje prażone solone (np. Alesto)', kcal: 562, fat: 45.3, carbs: 27.2, fiber: 10.6, protein: 20.2, tip: 'Smaczne, ale mają 16.6g W.Netto/100g! Trzymaj się porcji 25-30g (~4.5g W.Netto).', substitute: 'Orzechy Makadamia lub Pekan (mają 3x mniej węglowodanów netto)' },
+  { id: 'f17', name: 'Twaróg półtłusty / tłusty', kcal: 133, fat: 4.7, carbs: 3.5, fiber: 0, protein: 18.7, tip: 'Dobre źródło białka, ale zawiera laktozę – dodaj śmietanę 30% lub olej lniany.', substitute: '' },
+  { id: 'f18', name: 'Maliny / Borówki amerykańskie', kcal: 52, fat: 0.7, carbs: 11.9, fiber: 6.5, protein: 1.2, tip: 'Najlepsze owoce na keto (5.4g W.Netto/100g). Garść (50g) do mascarpone jest całkowicie bezpieczna.', substitute: '' },
+  { id: 'f19', name: 'Pomidor malinowy', kcal: 18, fat: 0.2, carbs: 3.9, fiber: 1.2, protein: 0.9, tip: '2.7g W.Netto/100g. Jeden średni pomidor pasuje do keto, ale unikaj jedzenia kilogramami.', substitute: '' },
+
+  // WYSOKOWĘGLOWODANOWE (Z podpowiedziami zamienników!)
+  { id: 'f20', name: 'Chleb pszenny / żytni tradycyjny', kcal: 259, fat: 3.3, carbs: 49.0, fiber: 6.0, protein: 8.5, tip: 'Wyrzuca z ketozy już po 1 kromce (43g W.Netto/100g).', substitute: 'Chleb czystoziarnisty Keto (z pestek i błonnika) lub chleb z mąki migdałowej' },
+  { id: 'f21', name: 'Ziemniaki gotowane', kcal: 77, fat: 0.1, carbs: 17.5, fiber: 1.8, protein: 2.0, tip: 'Wysoka zawartość skrobi (15.7g W.Netto) powoduje gwałtowny skok insuliny.', substitute: 'Puree z kalafiora z masłem i czosnkiem lub frytki z selera korzeniowego' },
+  { id: 'f22', name: 'Makaron pszenny / Ryż biały', kcal: 350, fat: 1.5, carbs: 72.0, fiber: 2.5, protein: 11.0, tip: 'Bomba węglowodanowa (~70g W.Netto/100g suchego produktu).', substitute: 'Makaron Konjac (Shirataki - 0g W.Netto) lub "ryż" zeblanszowanego kalafiora' },
+  { id: 'f23', name: 'Cukier biały / Miód', kcal: 399, fat: 0, carbs: 99.8, fiber: 0, protein: 0, tip: 'Natychmiast przerywa ketozę i blokuje spalanie tłuszczu.', substitute: 'Erytrytol (0 kcal, 0g W.Netto, IG=0) lub Ksylitol w małych ilościach' }
+];
+
+createApp({
+  setup() {
+    const activeTab = ref('diary');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const selectedDate = ref(todayStr);
+
+    // Pory posiłków
+    const mealSlots = [
+      { id: 'breakfast', name: 'Śniadanie / Posiłek #1', icon: '🍳', hint: 'Białko + Tłuszcz (niskie węglowodany na start)' },
+      { id: 'lunch', name: 'Obiad / Posiłek #2', icon: '🥩', hint: 'Główny posiłek + warzywa z błonnikiem' },
+      { id: 'dinner', name: 'Kolacja / Posiłek #3', icon: '🥗', hint: 'Lekkie białko, zdrowe tłuszcze na noc' },
+      { id: 'snacks', name: 'Przekąski / Orzechy / Przedtreningówka', icon: '🥜', hint: 'Kontroluj gramaturę orzechów!' }
+    ];
+
+    // Stan profilu (Domyślne wartości startowe zoptymalizowane pod profil użytkownika)
+    const profile = reactive({
+      gender: 'male',
+      age: 44,
+      height: 180,
+      weight: 86,
+      activity: 1.375,
+      goal: 'cut'
+    });
+
+    // Cele makro (Domyślnie wyliczone pod Keto)
+    const targets = reactive({
+      netCarbs: 25,
+      kcal: 2050,
+      fat: 158,
+      protein: 132
+    });
+
+    const foods = ref([...DEFAULT_FOODS]);
+    const diary = reactive({});        // { 'YYYY-MM-DD': [ { entryId, slotId, food, grams } ] }
+    const weightHistory = reactive({}); // { 'YYYY-MM-DD': 86.0 }
+    const todayWeightInput = ref(null);
+
+    // Wyszukiwarka i dodawanie produktów
+    const foodSearchQuery = ref('');
+    const foodFilter = ref('all');
+    const showCustomFoodForm = ref(false);
+    const newFood = reactive({ name: '', kcal: 200, fat: 15, carbs: 3, fiber: 1, protein: 12, tip: '', substitute: '' });
+
+    // Open Food Facts API
+    const showOffSearch = ref(false);
+    const offQuery = ref('');
+    const offLoading = ref(false);
+    const offError = ref('');
+    const offResults = ref([]);
+
+    // Modal dodawania do dziennika
+    const addModal = reactive({ open: false, slotId: 'breakfast', search: '', grams: 100 });
+
+    // Wczytanie danych z localStorage
+    const loadFromStorage = () => {
+      try {
+        const raw = localStorage.getItem('keto_assistant_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.profile) Object.assign(profile, parsed.profile);
+          if (parsed.targets) Object.assign(targets, parsed.targets);
+          if (parsed.foods && parsed.foods.length) foods.value = parsed.foods;
+          if (parsed.diary) Object.assign(diary, parsed.diary);
+          if (parsed.weightHistory) Object.assign(weightHistory, parsed.weightHistory);
+        } else {
+          // Przykładowe dane historyczne na start, by wykresy i dziennik od razu żyły
+          seedInitialDemoData();
+        }
+      } catch (e) {
+        console.error('Błąd odczytu localStorage:', e);
+      }
+      todayWeightInput.value = weightHistory[selectedDate.value] || profile.weight;
+    };
+
+    const saveAll = () => {
+      const payload = {
+        profile,
+        targets,
+        foods: foods.value,
+        diary,
+        weightHistory
+      };
+      localStorage.setItem('keto_assistant_v1', JSON.stringify(payload));
+    };
+
+    // Inicjalizacja przykładowych 5 dni historii (dla czytelnych wykresów od pierwszego uruchomienia)
+    const seedInitialDemoData = () => {
+      for (let i = 5; i >= 1; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        weightHistory[key] = +(profile.weight + (i * 0.25)).toFixed(1);
+        diary[key] = [
+          { entryId: 'seed1_' + i, slotId: 'breakfast', food: DEFAULT_FOODS[0], grams: 165 },
+          { entryId: 'seed2_' + i, slotId: 'breakfast', food: DEFAULT_FOODS[2], grams: 60 },
+          { entryId: 'seed3_' + i, slotId: 'lunch', food: DEFAULT_FOODS[8], grams: 220 },
+          { entryId: 'seed4_' + i, slotId: 'lunch', food: DEFAULT_FOODS[13], grams: 150 },
+          { entryId: 'seed5_' + i, slotId: 'snacks', food: DEFAULT_FOODS[4], grams: 35 }
+        ];
+      }
+      weightHistory[todayStr] = profile.weight;
+      saveAll();
+    };
+
+    // Obliczenia pomocnicze dla produktu i wpisu
+    const getNetCarbs = (food) => Math.max(0, (food.carbs || 0) - (food.fiber || 0));
+    const calcMacro = (valPer100, grams) => +(((valPer100 || 0) * grams) / 100).toFixed(1);
+    const calcEntryNetCarbs = (entry) => (getNetCarbs(entry.food) * entry.grams) / 100;
+
+    // Pobieranie wpisów dla wybranej daty
+    const currentDayEntries = computed(() => diary[selectedDate.value] || []);
+    const getSlotEntries = (slotId) => currentDayEntries.value.filter(e => e.slotId === slotId);
+    const getSlotName = (slotId) => (mealSlots.find(s => s.id === slotId) || {}).name || '';
+
+    const getSlotTotals = (slotId) => {
+      return getSlotEntries(slotId).reduce((acc, e) => {
+        const ratio = e.grams / 100;
+        acc.kcal += e.food.kcal * ratio;
+        acc.fat += e.food.fat * ratio;
+        acc.carbs += e.food.carbs * ratio;
+        acc.fiber += e.food.fiber * ratio;
+        acc.netCarbs += getNetCarbs(e.food) * ratio;
+        acc.protein += e.food.protein * ratio;
+        return acc;
+      }, { kcal: 0, fat: 0, carbs: 0, fiber: 0, netCarbs: 0, protein: 0 });
+    };
+
+    const dailyTotals = computed(() => {
+      return currentDayEntries.value.reduce((acc, e) => {
+        const ratio = e.grams / 100;
+        acc.kcal += e.food.kcal * ratio;
+        acc.fat += e.food.fat * ratio;
+        acc.carbs += e.food.carbs * ratio;
+        acc.fiber += e.food.fiber * ratio;
+        acc.netCarbs += getNetCarbs(e.food) * ratio;
+        acc.protein += e.food.protein * ratio;
+        return acc;
+      }, { kcal: 0, fat: 0, carbs: 0, fiber: 0, netCarbs: 0, protein: 0 });
+    });
+
+    const remainingMacro = computed(() => ({
+      netCarbs: +(targets.netCarbs - dailyTotals.value.netCarbs).toFixed(1),
+      kcal: +(targets.kcal - dailyTotals.value.kcal).toFixed(0),
+      fat: +(targets.fat - dailyTotals.value.fat).toFixed(0),
+      protein: +(targets.protein - dailyTotals.value.protein).toFixed(0)
+    }));
+
+    // Wizualny status Węglowodanów Netto
+    const netCarbsStatus = computed(() => {
+      const ratio = dailyTotals.value.netCarbs / targets.netCarbs;
+      if (ratio <= 0.8) {
+        return {
+          label: 'Bezpieczna Ketoza',
+          borderClass: 'border-emerald-500/50',
+          badgeClass: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40',
+          textClass: 'text-emerald-400',
+          barClass: 'bg-emerald-500'
+        };
+      } else if (ratio <= 1.0) {
+        return {
+          label: 'Blisko Limitu',
+          borderClass: 'border-amber-500/60',
+          badgeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/40',
+          textClass: 'text-amber-400',
+          barClass: 'bg-amber-500'
+        };
+      } else {
+        return {
+          label: 'Przekroczono Próg!',
+          borderClass: 'border-red-500/70',
+          badgeClass: 'bg-red-500/20 text-red-300 border border-red-500/40',
+          textClass: 'text-red-400',
+          barClass: 'bg-red-500'
+        };
+      }
+    });
+
+    // Oznaczenia Keto dla produktów (na 100g)
+    const getKetoBadgeColor = (food) => {
+      const nc = getNetCarbs(food);
+      if (nc <= 6) return 'bg-emerald-400';
+      if (nc <= 18) return 'bg-amber-400';
+      return 'bg-red-500';
+    };
+
+    const getKetoLabelStyle = (food) => {
+      const nc = getNetCarbs(food);
+      if (nc <= 6) return { text: 'KETO OK (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-emerald-950 text-emerald-300 border border-emerald-700' };
+      if (nc <= 18) return { text: 'KONTROLUJ PORCJĘ (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-amber-950 text-amber-300 border border-amber-700' };
+      return { text: 'UNIKAJ NA KETO (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-red-950 text-red-300 border border-red-700' };
+    };
+
+    // Filtrowanie bazy produktów
+    const filteredFoods = computed(() => {
+      return foods.value.filter(f => {
+        const matchesSearch = f.name.toLowerCase().includes(foodSearchQuery.value.toLowerCase());
+        const nc = getNetCarbs(f);
+        if (foodFilter.value === 'keto') return matchesSearch && nc <= 6;
+        if (foodFilter.value === 'moderate') return matchesSearch && nc > 6 && nc <= 18;
+        if (foodFilter.value === 'avoid') return matchesSearch && nc > 18;
+        return matchesSearch;
+      });
+    });
+
+    const modalFilteredFoods = computed(() => {
+      return foods.value.filter(f => f.name.toLowerCase().includes(addModal.search.toLowerCase()));
+    });
+
+    // Dodawanie / Usuwanie z dziennika
+    const openAddModal = (slotId) => {
+      addModal.slotId = slotId;
+      addModal.search = '';
+      addModal.grams = 100;
+      addModal.open = true;
+    };
+
+    const openQuickAddFromDb = (food) => {
+      addModal.slotId = 'breakfast';
+      addModal.search = food.name;
+      addModal.grams = 100;
+      addModal.open = true;
+    };
+
+    const confirmAddFood = (food) => {
+      if (!diary[selectedDate.value]) diary[selectedDate.value] = [];
+      diary[selectedDate.value].push({
+        entryId: 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        slotId: addModal.slotId,
+        food: JSON.parse(JSON.stringify(food)),
+        grams: addModal.grams || 100
+      });
+      saveAll();
+      addModal.open = false;
+    };
+
+    const quickAddSuggestion = (food, portion) => {
+      if (!diary[selectedDate.value]) diary[selectedDate.value] = [];
+      diary[selectedDate.value].push({
+        entryId: 'e_' + Date.now(),
+        slotId: 'snacks',
+        food: JSON.parse(JSON.stringify(food)),
+        grams: portion
+      });
+      saveAll();
+      activeTab.value = 'diary';
+    };
+
+    const removeDiaryEntry = (entryId) => {
+      if (!diary[selectedDate.value]) return;
+      diary[selectedDate.value] = diary[selectedDate.value].filter(e => e.entryId !== entryId);
+      saveAll();
+    };
+
+    // Dodawanie własnego produktu
+    const addCustomFood = () => {
+      if (!newFood.name.trim()) return;
+      foods.value.unshift({
+        id: 'custom_' + Date.now(),
+        name: newFood.name.trim(),
+        kcal: Number(newFood.kcal) || 0,
+        fat: Number(newFood.fat) || 0,
+        carbs: Number(newFood.carbs) || 0,
+        fiber: Number(newFood.fiber) || 0,
+        protein: Number(newFood.protein) || 0,
+        tip: newFood.tip || 'Produkt dodany przez użytkownika.',
+        substitute: newFood.substitute || ''
+      });
+      saveAll();
+      newFood.name = '';
+      newFood.tip = '';
+      newFood.substitute = '';
+      showCustomFoodForm.value = false;
+    };
+
+    // Integracja z Open Food Facts API
+    const searchOpenFoodFacts = async () => {
+      if (!offQuery.value.trim()) return;
+      offLoading.value = true;
+      offError.value = '';
+      offResults.value = [];
+      try {
+        const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(offQuery.value)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,nutriments`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.products && data.products.length) {
+          offResults.value = data.products
+            .filter(p => p.product_name && p.nutriments)
+            .map(p => ({
+              name: p.product_name,
+              kcal: Math.round(p.nutriments['energy-kcal_100g'] || 0),
+              fat: +(p.nutriments.fat_100g || 0).toFixed(1),
+              carbs: +(p.nutriments.carbohydrates_100g || 0).toFixed(1),
+              fiber: +(p.nutriments.fiber_100g || 0).toFixed(1),
+              protein: +(p.nutriments.proteins_100g || 0).toFixed(1)
+            }));
+        } else {
+          offError.value = 'Nie znaleziono produktów dla tego zapytania.';
+        }
+      } catch (err) {
+        offError.value = 'Błąd połączenia z API Open Food Facts. Sprawdź połączenie z internetem.';
+      } finally {
+        offLoading.value = false;
+      }
+    };
+
+    const importFromOff = (item) => {
+      const net = Math.max(0, item.carbs - item.fiber);
+      foods.value.unshift({
+        id: 'off_' + Date.now() + Math.random(),
+        name: item.name,
+        kcal: item.kcal,
+        fat: item.fat,
+        carbs: item.carbs,
+        fiber: item.fiber,
+        protein: item.protein,
+        tip: `Zaimportowano z Open Food Facts (${net.toFixed(1)}g W.Netto/100g).`,
+        substitute: net > 15 ? 'Poszukaj odpowiednika o niższej zawartości cukru/skrobi' : ''
+      });
+      saveAll();
+      showOffSearch.value = false;
+    };
+
+    // Obliczanie celów Keto wg wzoru Mifflina-St Jeora
+    const recalculateKetoTargets = () => {
+      const s = profile.gender === 'male' ? 5 : -161;
+      const bmr = (10 * profile.weight) + (6.25 * profile.height) - (5 * profile.age) + s;
+      let tdee = bmr * profile.activity;
+
+      if (profile.goal === 'cut') tdee *= 0.85;      // -15% redukcja
+      if (profile.goal === 'bulk') tdee *= 1.10;     // +10% przyrost
+
+      const kcalTarget = Math.round(tdee);
+      // Białko na keto: ~1.6g na kg masy ciała
+      const proteinGrams = Math.round(profile.weight * 1.6);
+      const carbGrams = targets.netCarbs || 25;
+      // Reszta kalorii z tłuszczu
+      const remainingKcalForFat = Math.max(400, kcalTarget - (proteinGrams * 4) - (carbGrams * 4));
+      const fatGrams = Math.round(remainingKcalForFat / 9);
+
+      targets.kcal = kcalTarget;
+      targets.protein = proteinGrams;
+      targets.fat = fatGrams;
+      saveAll();
+    };
+
+    // Inteligentne sugestie doradcy Keto ("Co jeszcze zmieścić w limicie?")
+    const dailyAdviceSummary = computed(() => {
+      const remCarbs = remainingMacro.value.netCarbs;
+      const remFat = remainingMacro.value.fat;
+      const remProt = remainingMacro.value.protein;
+
+      if (remCarbs < 0) {
+        return `Przekroczyłeś dziś próg węglowodanów netto o ${Math.abs(remCarbs).toFixed(1)} g. Aby zminimalizować wyrzut insuliny i szybko wrócić w stan ketozy, w kolejnych posiłkach wyeliminuj węglowodany całkowicie i wybierz długi spacer (np. 45–60 min marszu na bieżni).`;
+      }
+      if (remFat > 40 && remProt < 20) {
+        return `Twoje białko jest już niemal domknięte, ale brakuje Ci ${remFat} g tłuszczu energetycznego. Wybierz produkty o bardzo wysokim udziale tłuszczu i śladowym białku: orzechy makadamia, pekan, awokado lub dodaj masło klarowane / oliwę do posiłku.`;
+      }
+      if (remProt > 35) {
+        return `Masz jeszcze bezpieczny zapas ${remCarbs} g węglowodanów netto i potrzebujesz ${remProt} g białka. Najlepszym wyborem będzie porcja mięsa lub tłustej ryby (łosoś, karkówka, jajka) z porcją kiszonek lub zielonych warzyw.`;
+      }
+      return `Twój rozkład makro na dziś wygląda wzorcowo! Masz jeszcze ${remCarbs} g zapasu węglowodanów netto. Poniżej znajdziesz gotowe porcje, które idealnie wpasują się w Twój pozostały limit.`;
+    });
+
+    const smartFoodSuggestions = computed(() => {
+      const remC = Math.max(0, remainingMacro.value.netCarbs);
+      const suggestions = [];
+
+      // Dobieramy produkty keto, które bez problemu zmieszczą się w pozostałym limicie węglowodanów netto
+      const candidates = [
+        { id: 'f5', portion: 35, reason: 'Szybkie podbicie zdrowych tłuszczów (Makadamia) przy minimalnym ładunku węgli.' },
+        { id: 'f6', portion: 35, reason: 'Porcja orzechów Pekan – wysoka sytość i mnóstwo antyoksydantów.' },
+        { id: 'f2', portion: 100, reason: 'Uzupełnia potas i magnez oraz dostarcza jednonienasyconych tłuszczów.' },
+        { id: 'f1', portion: 110, reason: '2 jajka – idealne domknięcie białka i tłuszczu prawie bez węglowodanów.' },
+        { id: 'f4', portion: 120, reason: 'Czyste białko i kwasy Omega-3 (0g W.Netto – bezpieczne nawet przy końcu limitu).' },
+        { id: 'f14', portion: 120, reason: 'Naturalny probiotyk i błonnik przy śladowej ilości węglowodanów netto.' }
+      ];
+
+      candidates.forEach(c => {
+        const food = foods.value.find(f => f.id === c.id);
+        if (!food) return;
+        const nc = +((getNetCarbs(food) * c.portion) / 100).toFixed(1);
+        if (nc <= remC) {
+          suggestions.push({
+            food,
+            portion: c.portion,
+            reason: c.reason,
+            netCarbs: nc,
+            fat: +((food.fat * c.portion) / 100).toFixed(1),
+            protein: +((food.protein * c.portion) / 100).toFixed(1),
+            kcal: Math.round((food.kcal * c.portion) / 100)
+          });
+        }
+      });
+
+      return suggestions.slice(0, 4);
+    });
+
+    // Nawigacja datami i zapis wagi
+    const changeDate = (days) => {
+      const d = new Date(selectedDate.value);
+      d.setDate(d.getDate() + days);
+      selectedDate.value = d.toISOString().slice(0, 10);
+    };
+
+    watch(selectedDate, (newDate) => {
+      todayWeightInput.value = weightHistory[newDate] || profile.weight;
+    });
+
+    const saveDailyWeight = () => {
+      if (!todayWeightInput.value) return;
+      weightHistory[selectedDate.value] = Number(todayWeightInput.value);
+      profile.weight = Number(todayWeightInput.value);
+      saveAll();
+    };
+
+    // Eksport / Import JSON
+    const exportData = () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(localStorage.getItem('keto_assistant_v1') || '{}');
+      const dlAnchor = document.createElement('a');
+      dlAnchor.setAttribute("href", dataStr);
+      dlAnchor.setAttribute("download", `keto_asystent_backup_${todayStr}.json`);
+      document.body.appendChild(dlAnchor);
+      dlAnchor.click();
+      dlAnchor.remove();
+    };
+
+    const importData = (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          localStorage.setItem('keto_assistant_v1', JSON.stringify(parsed));
+          loadFromStorage();
+          alert('Kopia zapasowa została pomyślnie wczytana!');
+        } catch (err) {
+          alert('Nieprawidłowy plik JSON.');
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    // Renderowanie wykresów (Chart.js)
+    let chartsInstance = { carbs: null, kcal: null, weight: null };
+
+    const renderCharts = () => {
+      const labels = [];
+      const netCarbsData = [];
+      const kcalData = [];
+      const weightData = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(selectedDate.value);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        labels.push(key.slice(5)); // MM-DD
+
+        const entries = diary[key] || [];
+        let c = 0, k = 0;
+        entries.forEach(e => {
+          c += (getNetCarbs(e.food) * e.grams) / 100;
+          k += (e.food.kcal * e.grams) / 100;
+        });
+        netCarbsData.push(+c.toFixed(1));
+        kcalData.push(Math.round(k));
+        weightData.push(weightHistory[key] || profile.weight);
+      }
+
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+          y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } }
+        }
+      };
+
+      const ctxCarbs = document.getElementById('carbsChart');
+      if (ctxCarbs) {
+        if (chartsInstance.carbs) chartsInstance.carbs.destroy();
+        chartsInstance.carbs = new Chart(ctxCarbs, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Węglowodany Netto (g)',
+              data: netCarbsData,
+              backgroundColor: netCarbsData.map(v => v <= targets.netCarbs ? '#10b981' : '#ef4444'),
+              borderRadius: 6
+            }]
+          },
+          options: commonOptions
+        });
+      }
+
+      const ctxKcal = document.getElementById('kcalChart');
+      if (ctxKcal) {
+        if (chartsInstance.kcal) chartsInstance.kcal.destroy();
+        chartsInstance.kcal = new Chart(ctxKcal, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Kalorie (kcal)',
+              data: kcalData,
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245, 158, 11, 0.15)',
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: commonOptions
+        });
+      }
+
+      const ctxWeight = document.getElementById('weightChart');
+      if (ctxWeight) {
+        if (chartsInstance.weight) chartsInstance.weight.destroy();
+        chartsInstance.weight = new Chart(ctxWeight, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Waga (kg)',
+              data: weightData,
+              borderColor: '#38bdf8',
+              backgroundColor: 'rgba(56, 189, 248, 0.15)',
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: commonOptions
+        });
+      }
+    };
+
+    const switchTab = async (tab) => {
+      activeTab.value = tab;
+      if (tab === 'charts') {
+        await nextTick();
+        renderCharts();
+      }
+    };
+
+    onMounted(() => {
+      loadFromStorage();
+    });
+
+    return {
+      activeTab, switchTab, selectedDate, changeDate,
+      mealSlots, profile, targets, foods,
+      todayWeightInput, saveDailyWeight,
+      foodSearchQuery, foodFilter, filteredFoods,
+      showCustomFoodForm, newFood, addCustomFood,
+      showOffSearch, offQuery, offLoading, offError, offResults, searchOpenFoodFacts, importFromOff,
+      addModal, openAddModal, openQuickAddFromDb, modalFilteredFoods, confirmAddFood,
+      getNetCarbs, calcMacro, calcEntryNetCarbs,
+      getSlotEntries, getSlotTotals, getSlotName, removeDiaryEntry,
+      dailyTotals, remainingMacro, netCarbsStatus,
+      getKetoBadgeColor, getKetoLabelStyle,
+      recalculateKetoTargets, dailyAdviceSummary, smartFoodSuggestions, quickAddSuggestion,
+      saveAll, exportData, importData
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
