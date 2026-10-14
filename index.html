@@ -249,6 +249,74 @@
         </p>
       </div>
 
+      <!-- NAWODNIENIE I ELEKTROLITY (profilaktyka "keto grypy") -->
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-2xl overflow-hidden">
+        <button @click="showHydration = !showHydration"
+                class="w-full px-4 py-3 flex justify-between items-center gap-2 bg-slate-800">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <i class="ph-duotone ph-drop text-xl text-sky-400 shrink-0"></i>
+            <div class="text-left min-w-0">
+              <h3 class="font-bold text-sm leading-none">Nawodnienie i elektrolity</h3>
+              <span class="text-[11px] text-slate-400">
+                {{ todayHydration.water }} / {{ targets.water }} ml · Na {{ todayHydration.sodium }} · K {{ todayHydration.potassium }} · Mg {{ todayHydration.magnesium }} mg
+              </span>
+            </div>
+          </div>
+          <i class="ph-bold text-slate-400 shrink-0" :class="showHydration ? 'ph-caret-down' : 'ph-caret-right'"></i>
+        </button>
+
+        <div v-show="showHydration" class="p-4 space-y-4 border-t border-slate-700/60">
+          <!-- Woda -->
+          <div class="space-y-2">
+            <div class="flex justify-between items-end">
+              <span class="text-xs font-bold text-sky-300">💧 Woda</span>
+              <span class="text-xs text-slate-400">
+                <strong class="text-white text-sm">{{ todayHydration.water }}</strong> / {{ targets.water }} ml
+              </span>
+            </div>
+            <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+              <div class="h-full bg-sky-400 rounded-full transition-all" :style="{ width: hydrationPercent('water') + '%' }"></div>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button v-for="ml in [250, 500, 750]" :key="ml" @click="addHydration('water', ml)"
+                      class="bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition">
+                +{{ ml }} ml
+              </button>
+              <button @click="addHydration('water', -250)"
+                      class="bg-slate-900 border border-slate-700 text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-bold">
+                −250
+              </button>
+            </div>
+          </div>
+
+          <!-- Elektrolity -->
+          <div v-for="el in electrolytes" :key="el.key" class="space-y-1.5 pt-3 border-t border-slate-700/50">
+            <div class="flex justify-between items-end gap-2">
+              <span class="text-xs font-bold" :class="el.textClass">{{ el.icon }} {{ el.name }}</span>
+              <span class="text-xs text-slate-400">
+                <strong class="text-white">{{ todayHydration[el.key] }}</strong> / {{ targets[el.key] }} mg
+              </span>
+            </div>
+            <div class="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+              <div class="h-full rounded-full transition-all" :class="el.barClass" :style="{ width: hydrationPercent(el.key) + '%' }"></div>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button v-for="p in el.presets" :key="p.label" @click="addHydration(el.key, p.mg)"
+                      class="bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-700 px-2 py-1 rounded-lg text-[11px] font-semibold active:scale-95 transition">
+                +{{ p.mg }} <span class="text-slate-500">· {{ p.label }}</span>
+              </button>
+              <button @click="addHydration(el.key, -el.presets[0].mg)"
+                      class="bg-slate-900 border border-slate-700 text-slate-500 hover:text-white px-2 py-1 rounded-lg text-[11px] font-bold">−</button>
+            </div>
+          </div>
+
+          <p class="text-[11px] leading-relaxed rounded-lg p-2.5 border"
+             :class="hydrationAdvice.class">
+            {{ hydrationAdvice.text }}
+          </p>
+        </div>
+      </div>
+
       <!-- KOPIOWANIE CAŁEGO DNIA -->
       <button @click="openCopyModal('day')"
               class="w-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl py-2.5 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 active:scale-98 transition">
@@ -929,6 +997,36 @@
                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
           </div>
         </div>
+
+        <!-- Cele nawodnienia i elektrolitów -->
+        <div class="pt-3 border-t border-slate-700/60 space-y-2">
+          <h4 class="text-xs font-bold text-sky-300">💧 Nawodnienie i elektrolity (dziennie)</h4>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="text-slate-400 block mb-1">Woda (ml)</label>
+              <input type="number" step="50" v-model.number="targets.water" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Sód (mg)</label>
+              <input type="number" step="100" v-model.number="targets.sodium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Potas (mg)</label>
+              <input type="number" step="100" v-model.number="targets.potassium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Magnez (mg)</label>
+              <input type="number" step="50" v-model.number="targets.magnesium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-500">
+            Na diecie ketogenicznej organizm zatrzymuje mniej wody i sodu, dlatego zapotrzebowanie bywa wyższe niż na zwykłej diecie. Przy chorobach nerek lub nadciśnieniu skonsultuj te wartości z lekarzem.
+          </p>
+        </div>
       </div>
 
       <!-- Zarządzanie danymi (Kopia zapasowa JSON) -->
@@ -1460,13 +1558,45 @@ createApp({
       goal: 'cut'
     });
 
-    // Cele makro (Domyślnie wyliczone pod Keto)
+    // Cele makro (Domyślnie wyliczone pod Keto) + nawodnienie i elektrolity
     const targets = reactive({
       netCarbs: 25,
       kcal: 2050,
       fat: 158,
-      protein: 132
+      protein: 132,
+      water: 3000,      // ml – ok. 35 ml na kg masy ciała
+      sodium: 4000,     // mg – na keto zapotrzebowanie rośnie (utrata wody i sodu)
+      potassium: 3500,  // mg
+      magnesium: 400    // mg
     });
+
+    // Elektrolity, których niedobór odpowiada za objawy "keto grypy"
+    const electrolytes = [
+      {
+        key: 'sodium', name: 'Sód', icon: '🧂', textClass: 'text-amber-300', barClass: 'bg-amber-400',
+        presets: [
+          { mg: 575, label: '¼ łyżeczki soli' },
+          { mg: 1150, label: '½ łyżeczki' },
+          { mg: 500, label: 'bulion / rosół' }
+        ]
+      },
+      {
+        key: 'potassium', name: 'Potas', icon: '🥑', textClass: 'text-emerald-300', barClass: 'bg-emerald-400',
+        presets: [
+          { mg: 500, label: 'awokado' },
+          { mg: 350, label: 'garść szpinaku' },
+          { mg: 1000, label: 'sól potasowa ¼ łyż.' }
+        ]
+      },
+      {
+        key: 'magnesium', name: 'Magnez', icon: '💊', textClass: 'text-violet-300', barClass: 'bg-violet-400',
+        presets: [
+          { mg: 100, label: 'orzechy / kakao' },
+          { mg: 200, label: 'tabletka' },
+          { mg: 400, label: 'pełna dawka' }
+        ]
+      }
+    ];
 
     const foods = ref([...DEFAULT_FOODS]);
 
@@ -1477,6 +1607,8 @@ createApp({
 
     const diary = reactive({});        // { 'YYYY-MM-DD': [ { entryId, slotId, food, grams } ] }
     const weightHistory = reactive({}); // { 'YYYY-MM-DD': 86.0 }
+    const hydration = reactive({});     // { 'YYYY-MM-DD': { water, sodium, potassium, magnesium } }
+    const showHydration = ref(false);
     const todayWeightInput = ref('');
 
     // Praca bez internetu (aplikacja i tak trzyma wszystko w localStorage)
@@ -1550,6 +1682,7 @@ createApp({
           if (Array.isArray(parsed.meals)) meals.value = parsed.meals;
           if (parsed.diary) Object.assign(diary, parsed.diary);
           if (parsed.weightHistory) Object.assign(weightHistory, parsed.weightHistory);
+          if (parsed.hydration) Object.assign(hydration, parsed.hydration);
         } else {
           // Przykładowe dane historyczne na start, by wykresy i dziennik od razu żyły
           seedInitialDemoData();
@@ -1567,7 +1700,8 @@ createApp({
         foods: foods.value,
         meals: meals.value,
         diary,
-        weightHistory
+        weightHistory,
+        hydration
       };
       localStorage.setItem('keto_assistant_v1', JSON.stringify(payload));
     };
@@ -2420,6 +2554,8 @@ createApp({
       targets.kcal = kcalTarget;
       targets.protein = proteinGrams;
       targets.fat = fatGrams;
+      // Ok. 35 ml wody na kilogram masy ciała, zaokrąglone do 50 ml
+      targets.water = Math.round((profile.weight * 35) / 50) * 50;
       saveAll();
       showToast(`Nowe cele: ${kcalTarget} kcal, ${fatGrams} g tłuszczu, ${proteinGrams} g białka`);
     };
@@ -2474,6 +2610,67 @@ createApp({
       });
 
       return suggestions.slice(0, 4);
+    });
+
+    /* ------------------------------------------------------------------ */
+    /* NAWODNIENIE I ELEKTROLITY                                            */
+    /* ------------------------------------------------------------------ */
+
+    const emptyHydration = () => ({ water: 0, sodium: 0, potassium: 0, magnesium: 0 });
+
+    const todayHydration = computed(() => hydration[selectedDate.value] || emptyHydration());
+
+    const hydrationPercent = (key) => {
+      const target = targets[key] || 1;
+      return Math.min(100, Math.round((todayHydration.value[key] / target) * 100));
+    };
+
+    const addHydration = (key, amount) => {
+      if (!hydration[selectedDate.value]) hydration[selectedDate.value] = emptyHydration();
+      const day = hydration[selectedDate.value];
+      const before = day[key];
+      day[key] = Math.max(0, before + amount);
+      saveAll();
+      if (before < targets[key] && day[key] >= targets[key]) {
+        const label = key === 'water' ? 'nawodnienia' : (electrolytes.find(e => e.key === key) || {}).name.toLowerCase();
+        showToast(`Dzienny cel ${label} osiągnięty`);
+      }
+    };
+
+    const hydrationAdvice = computed(() => {
+      const h = todayHydration.value;
+      const lowWater = h.water < targets.water * 0.6;
+      const lowSodium = h.sodium < targets.sodium * 0.5;
+      const lowMagnesium = h.magnesium < targets.magnesium * 0.5;
+
+      if (lowSodium && lowWater) {
+        return {
+          class: 'bg-amber-950/50 border-amber-800/60 text-amber-200',
+          text: 'Pijesz mało i masz niski sód – to najczęstsza przyczyna osłabienia, bólu głowy i skurczów na początku keto. Dosól posiłki lub wypij szklankę bulionu.'
+        };
+      }
+      if (lowSodium) {
+        return {
+          class: 'bg-amber-950/50 border-amber-800/60 text-amber-200',
+          text: 'Na keto organizm wydala więcej sodu niż zwykle. Przy takim niedoborze łatwo o zmęczenie i zawroty głowy – dosól jedzenie albo sięgnij po bulion.'
+        };
+      }
+      if (lowWater) {
+        return {
+          class: 'bg-sky-950/50 border-sky-800/60 text-sky-200',
+          text: `Zostało Ci jeszcze ${Math.max(0, targets.water - h.water)} ml wody do dziennego celu. Ketoza odwadnia – pij regularnie, nie tylko do posiłków.`
+        };
+      }
+      if (lowMagnesium) {
+        return {
+          class: 'bg-violet-950/50 border-violet-800/60 text-violet-200',
+          text: 'Nawodnienie i sód wyglądają dobrze. Zostaje magnez – jego niedobór objawia się nocnymi skurczami łydek i gorszym snem.'
+        };
+      }
+      return {
+        class: 'bg-emerald-950/50 border-emerald-800/60 text-emerald-200',
+        text: 'Nawodnienie i elektrolity na dobrym poziomie. Tak wygląda dzień bez objawów keto grypy.'
+      };
     });
 
     /* ------------------------------------------------------------------ */
@@ -2719,6 +2916,7 @@ createApp({
       activeTab, switchTab, selectedDate, changeDate,
       mealSlots, profile, targets, foods,
       todayWeightInput, saveDailyWeight, weightSummary, toast, isOffline,
+      electrolytes, showHydration, todayHydration, hydrationPercent, addHydration, hydrationAdvice,
       carbLevels, carbLevel, carbSliderPercent, carbPercentOf, setCarbTarget,
       dbView, foodSearchQuery, foodFilter, filteredFoods,
       showCustomFoodForm, newFood, addCustomFood,
