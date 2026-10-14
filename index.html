@@ -898,6 +898,113 @@
     <!-- ZAKŁADKA 4: HISTORIA I WYKRESY             -->
     <!-- ========================================== -->
     <div v-if="activeTab === 'charts'" class="space-y-5">
+
+      <!-- PODSUMOWANIE TYGODNIA -->
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <h3 class="font-bold text-sm text-white flex items-center gap-2">
+              <i class="ph-fill ph-chart-pie-slice text-emerald-400 text-lg"></i>
+              Podsumowanie tygodnia
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+              7 dni do {{ selectedDate }} ·
+              <template v-if="weeklySummary.daysLogged">
+                {{ weeklySummary.daysLogged }} {{ plural(weeklySummary.daysLogged, 'dzień z wpisami', 'dni z wpisami', 'dni z wpisami') }}
+              </template>
+              <template v-else>brak wpisów</template>
+            </p>
+          </div>
+          <div v-if="weeklySummary.daysLogged" class="text-right shrink-0">
+            <div class="text-xl font-black leading-none"
+                 :class="weeklySummary.limitRatio >= 0.85 ? 'text-emerald-400' : (weeklySummary.limitRatio >= 0.5 ? 'text-amber-400' : 'text-red-400')">
+              {{ weeklySummary.daysInLimit }}/{{ weeklySummary.daysLogged }}
+            </div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide mt-0.5">dni w limicie</div>
+          </div>
+        </div>
+
+        <div v-if="weeklySummary.daysLogged" class="grid grid-cols-2 gap-2">
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. węgle netto</div>
+            <div class="text-lg font-bold leading-tight"
+                 :class="weeklySummary.avgNetCarbs <= targets.netCarbs ? 'text-emerald-400' : 'text-red-400'">
+              {{ weeklySummary.avgNetCarbs.toFixed(1) }}<span class="text-xs font-semibold"> g</span>
+            </div>
+            <div class="text-[10px] text-slate-500">cel {{ targets.netCarbs }} g</div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. kalorie</div>
+            <div class="text-lg font-bold text-white leading-tight">
+              {{ Math.round(weeklySummary.avgKcal) }}<span class="text-xs font-semibold"> kcal</span>
+            </div>
+            <div class="text-[10px]" :class="weeklySummary.kcalDiff > 0 ? 'text-amber-400' : 'text-emerald-400'">
+              {{ weeklySummary.kcalDiff > 0 ? '+' : '' }}{{ weeklySummary.kcalDiff }} kcal vs cel
+            </div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. tłuszcz / białko</div>
+            <div class="text-lg font-bold text-white leading-tight">
+              {{ Math.round(weeklySummary.avgFat) }}<span class="text-xs font-semibold"> g</span>
+              <span class="text-slate-600 text-sm"> / </span>
+              {{ Math.round(weeklySummary.avgProtein) }}<span class="text-xs font-semibold"> g</span>
+            </div>
+            <div class="text-[10px] text-slate-500">cel {{ targets.fat }} / {{ targets.protein }} g</div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Trend wagi</div>
+            <template v-if="weeklySummary.weight">
+              <div class="text-lg font-bold leading-tight"
+                   :class="weeklySummary.weight.delta < 0 ? 'text-emerald-400' : (weeklySummary.weight.delta > 0 ? 'text-amber-400' : 'text-slate-300')">
+                {{ weeklySummary.weight.delta > 0 ? '+' : '' }}{{ weeklySummary.weight.delta.toFixed(1) }}<span class="text-xs font-semibold"> kg</span>
+              </div>
+              <div class="text-[10px] text-slate-500">
+                {{ weeklySummary.weight.from.toFixed(1) }} → {{ weeklySummary.weight.to.toFixed(1) }} kg
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-lg font-bold text-slate-500 leading-tight">—</div>
+              <div class="text-[10px] text-slate-500">dodaj pomiary wagi</div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Mini-pasek dni: od razu widać, który dzień wyłamał się z limitu.
+             Skala sięga 150% celu, więc linia limitu wypada zawsze na 2/3 wysokości. -->
+        <div v-if="weeklySummary.daysLogged" class="pt-1">
+          <div class="relative h-12 flex items-end gap-1.5">
+            <div class="absolute inset-x-0 border-t border-dashed border-slate-500/70 pointer-events-none" style="bottom: 66.7%"></div>
+            <div v-for="day in weeklySummary.days" :key="day.key"
+                 class="flex-1 min-w-0 rounded-t"
+                 :class="!day.logged ? 'bg-slate-700/60' : (day.netCarbs <= targets.netCarbs ? 'bg-emerald-500' : 'bg-red-500')"
+                 :style="{ height: day.logged ? Math.max(6, Math.min(100, (day.netCarbs / Math.max(targets.netCarbs * 1.5, 1)) * 100)) + '%' : '5%' }"
+                 :title="formatDayLabel(day.key) + ': ' + day.netCarbs.toFixed(1) + ' g'"></div>
+          </div>
+          <div class="flex gap-1.5 mt-1">
+            <div v-for="day in weeklySummary.days" :key="day.key" class="flex-1 min-w-0 text-center text-[9px] text-slate-500">
+              {{ day.key.slice(8) }}
+            </div>
+          </div>
+          <p class="text-[9px] text-slate-500 mt-1 text-right">linia przerywana = limit {{ targets.netCarbs }} g</p>
+        </div>
+
+        <div class="border rounded-xl p-3 text-[11px] leading-relaxed" :class="verdictClasses[weeklySummary.verdict.tone]">
+          <strong class="block text-xs mb-0.5">{{ weeklySummary.verdict.title }}</strong>
+          {{ weeklySummary.verdict.text }}
+        </div>
+
+        <div v-if="weeklySummary.daysLogged > 1" class="grid grid-cols-2 gap-2 text-[11px]">
+          <div class="bg-slate-900/60 border border-slate-700/60 rounded-xl px-2.5 py-2">
+            <div class="text-emerald-400 font-bold">Najlepszy dzień</div>
+            <div class="text-slate-300">{{ formatDayLabel(weeklySummary.bestDay.key) }} · {{ weeklySummary.bestDay.netCarbs.toFixed(1) }} g</div>
+          </div>
+          <div class="bg-slate-900/60 border border-slate-700/60 rounded-xl px-2.5 py-2">
+            <div class="text-amber-400 font-bold">Najsłabszy dzień</div>
+            <div class="text-slate-300">{{ formatDayLabel(weeklySummary.worstDay.key) }} · {{ weeklySummary.worstDay.netCarbs.toFixed(1) }} g</div>
+          </div>
+        </div>
+      </div>
+
       <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4">
         <h3 class="font-bold text-sm text-white mb-1">📉 Historia Węglowodanów Netto (Ostatnie 7 dni)</h3>
         <p class="text-xs text-slate-400 mb-3">Kontrola utrzymania progu ketozy (cel: {{ targets.netCarbs }}g)</p>
@@ -2984,6 +3091,146 @@ createApp({
       reader.readAsText(file);
     };
 
+    /* ------------------------------------------------------------------ */
+    /* PODSUMOWANIE TYGODNIA                                                */
+    /* ------------------------------------------------------------------ */
+
+    const weekDays = computed(() => {
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(selectedDate.value);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const entries = diary[key] || [];
+        const totals = entries.reduce((acc, e) => {
+          const ratio = e.grams / 100;
+          acc.kcal += e.food.kcal * ratio;
+          acc.fat += e.food.fat * ratio;
+          acc.protein += e.food.protein * ratio;
+          acc.netCarbs += getNetCarbs(e.food) * ratio;
+          return acc;
+        }, { kcal: 0, fat: 0, protein: 0, netCarbs: 0 });
+        days.push({ key, logged: entries.length > 0, ...totals });
+      }
+      return days;
+    });
+
+    const weeklySummary = computed(() => {
+      const days = weekDays.value;
+      const logged = days.filter(d => d.logged);
+      const startKey = days[0].key;
+      const endKey = days[days.length - 1].key;
+
+      const avg = (pick) => (logged.length ? logged.reduce((s, d) => s + pick(d), 0) / logged.length : 0);
+      const avgNetCarbs = avg(d => d.netCarbs);
+      const avgKcal = avg(d => d.kcal);
+      const avgFat = avg(d => d.fat);
+      const avgProtein = avg(d => d.protein);
+      const daysInLimit = logged.filter(d => d.netCarbs <= targets.netCarbs).length;
+      const bestDay = logged.length ? logged.reduce((a, b) => (b.netCarbs < a.netCarbs ? b : a)) : null;
+      const worstDay = logged.length ? logged.reduce((a, b) => (b.netCarbs > a.netCarbs ? b : a)) : null;
+
+      // Trend wagi: porównujemy ostatni pomiar z tygodnia z najwcześniejszym
+      // punktem odniesienia (pomiar z tygodnia lub ostatni sprzed okresu).
+      const measuredKeys = Object.keys(weightHistory).filter(k => k <= endKey).sort();
+      const inWindow = measuredKeys.filter(k => k >= startKey);
+      let weight = null;
+      if (inWindow.length) {
+        const toKey = inWindow[inWindow.length - 1];
+        const earlier = measuredKeys.filter(k => k < startKey).pop();
+        const fromKey = inWindow.length > 1 ? inWindow[0] : earlier;
+        if (fromKey) {
+          weight = {
+            from: weightHistory[fromKey],
+            to: weightHistory[toKey],
+            fromDate: fromKey,
+            toDate: toKey,
+            delta: +(weightHistory[toKey] - weightHistory[fromKey]).toFixed(1),
+            count: inWindow.length
+          };
+        }
+      }
+
+      const kcalDiff = Math.round(avgKcal - targets.kcal);
+
+      // Werdykt łączący dyscyplinę węglowodanową z bilansem kalorii i wagą
+      let verdict;
+      if (!logged.length) {
+        verdict = {
+          tone: 'slate',
+          title: 'Brak danych z tego tygodnia',
+          text: 'Zacznij zapisywać posiłki, a tutaj pojawi się średnia węglowodanów, liczba dni w limicie i powiązanie kalorii z trendem wagi.'
+        };
+      } else if (!weight) {
+        verdict = {
+          tone: avgNetCarbs <= targets.netCarbs ? 'emerald' : 'amber',
+          title: avgNetCarbs <= targets.netCarbs ? 'Węglowodany pod kontrolą' : 'Średnia powyżej limitu',
+          text: avgNetCarbs <= targets.netCarbs
+            ? `Średnio ${avgNetCarbs.toFixed(1)} g węglowodanów netto dziennie, czyli w granicach celu ${targets.netCarbs} g. Dodaj pomiary wagi, żeby zobaczyć, jak dieta przekłada się na masę ciała.`
+            : `Średnio ${avgNetCarbs.toFixed(1)} g węglowodanów netto dziennie przy celu ${targets.netCarbs} g. Dodaj pomiary wagi, żeby zobaczyć pełny obraz.`
+        };
+      } else if (weight.delta <= -0.2 && kcalDiff <= 0) {
+        verdict = {
+          tone: 'emerald',
+          title: 'Deficyt działa zgodnie z planem',
+          text: `Waga spadła o ${Math.abs(weight.delta).toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie (${kcalDiff} kcal względem celu). Trzymaj obecny rytm.`
+        };
+      } else if (weight.delta <= -0.2) {
+        verdict = {
+          tone: 'emerald',
+          title: 'Waga spada mimo wyższych kalorii',
+          text: `Waga spadła o ${Math.abs(weight.delta).toFixed(1)} kg, choć jesz średnio o ${kcalDiff} kcal więcej niż zakłada cel. Twoje zapotrzebowanie jest prawdopodobnie wyższe niż wyliczone – obserwuj kolejny tydzień przed zmianą celu.`
+        };
+      } else if (weight.delta >= 0.2 && kcalDiff > 0) {
+        verdict = {
+          tone: 'red',
+          title: 'Nadwyżka kalorii zaczyna być widoczna',
+          text: `Waga wzrosła o ${weight.delta.toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie, czyli o ${kcalDiff} kcal powyżej celu. Zmniejsz porcje tłuszczu – to on najmocniej podbija kaloryczność na keto.`
+        };
+      } else if (weight.delta >= 0.2) {
+        verdict = {
+          tone: 'amber',
+          title: 'Waga w górę mimo kalorii w celu',
+          text: `Waga wzrosła o ${weight.delta.toFixed(1)} kg, choć średnie ${Math.round(avgKcal)} kcal mieści się w celu. Najczęstsze przyczyny to zatrzymana woda, sól i niedoszacowane gramatury – zważ porcje przez kilka dni.`
+        };
+      } else {
+        verdict = {
+          tone: 'sky',
+          title: 'Waga stabilna',
+          text: `Waga zmieniła się o ${Math.abs(weight.delta).toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie. Jeśli celem jest redukcja, zejdź o 150–250 kcal; jeśli utrzymanie – nic nie zmieniaj.`
+        };
+      }
+
+      return {
+        days,
+        daysLogged: logged.length,
+        daysInLimit,
+        avgNetCarbs,
+        avgKcal,
+        avgFat,
+        avgProtein,
+        kcalDiff,
+        bestDay,
+        worstDay,
+        weight,
+        verdict,
+        limitRatio: logged.length ? daysInLimit / logged.length : 0
+      };
+    });
+
+    const verdictClasses = {
+      emerald: 'bg-emerald-950/60 border-emerald-700/70 text-emerald-200',
+      amber: 'bg-amber-950/60 border-amber-700/70 text-amber-200',
+      red: 'bg-red-950/60 border-red-700/70 text-red-200',
+      sky: 'bg-sky-950/60 border-sky-700/70 text-sky-200',
+      slate: 'bg-slate-800/60 border-slate-700 text-slate-300'
+    };
+
+    const formatDayLabel = (key) => {
+      const d = new Date(key + 'T00:00:00');
+      return d.toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'numeric' });
+    };
+
     // Renderowanie wykresów (Chart.js)
     let chartsInstance = { carbs: null, kcal: null, weight: null };
 
@@ -3114,6 +3361,7 @@ createApp({
       copyModal, copyQuickDates, copyPreview, openCopyModal, confirmCopyDay, plural,
       editModal, openEditEntry, editPreview, saveEditEntry, deleteFromEditModal, runToastAction,
       dailyTotals, remainingMacro, netCarbsStatus,
+      weeklySummary, verdictClasses, formatDayLabel,
       getKetoBadgeColor, getKetoLabelStyle,
       recalculateKetoTargets, dailyAdviceSummary, smartFoodSuggestions, quickAddSuggestion,
       saveAll, exportData, importData

@@ -15,6 +15,7 @@
 .ph.ph-caret-left:before{content: "\e138";}
 .ph.ph-caret-right:before{content: "\e13a";}
 .ph.ph-chart-line-up:before{content: "\e156";}
+.ph.ph-chart-pie-slice:before{content: "\e15a";}
 .ph.ph-check-circle:before{content: "\e184";}
 .ph.ph-clock:before{content: "\e19a";}
 .ph.ph-clock-countdown:before{content: "\ed2c";}
@@ -60,6 +61,7 @@
 .ph-bold.ph-caret-left:before{content: "\e138";}
 .ph-bold.ph-caret-right:before{content: "\e13a";}
 .ph-bold.ph-chart-line-up:before{content: "\e156";}
+.ph-bold.ph-chart-pie-slice:before{content: "\e15a";}
 .ph-bold.ph-check-circle:before{content: "\e184";}
 .ph-bold.ph-clock:before{content: "\e19a";}
 .ph-bold.ph-clock-countdown:before{content: "\ed2c";}
@@ -105,6 +107,7 @@
 .ph-fill.ph-caret-left:before{content: "\e138";}
 .ph-fill.ph-caret-right:before{content: "\e13a";}
 .ph-fill.ph-chart-line-up:before{content: "\e156";}
+.ph-fill.ph-chart-pie-slice:before{content: "\e15a";}
 .ph-fill.ph-check-circle:before{content: "\e184";}
 .ph-fill.ph-clock:before{content: "\e19a";}
 .ph-fill.ph-clock-countdown:before{content: "\ed2c";}
@@ -163,6 +166,8 @@
 .ph-duotone.ph-caret-right:after{content: "\e13b"; margin-left: -1em;}
 .ph-duotone.ph-chart-line-up:before{content: "\e156"; opacity: 0.2;}
 .ph-duotone.ph-chart-line-up:after{content: "\e157"; margin-left: -1em;}
+.ph-duotone.ph-chart-pie-slice:before{content: "\e15a"; opacity: 0.2;}
+.ph-duotone.ph-chart-pie-slice:after{content: "\e15b"; margin-left: -1em;}
 .ph-duotone.ph-check-circle:before{content: "\e184"; opacity: 0.2;}
 .ph-duotone.ph-check-circle:after{content: "\e185"; margin-left: -1em;}
 .ph-duotone.ph-clock:before{content: "\e19a"; opacity: 0.2;}
