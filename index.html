@@ -557,6 +557,7 @@
         </div>
         <div class="flex gap-1.5 overflow-x-auto no-scrollbar text-xs">
           <button @click="foodFilter = 'all'" :class="foodFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">Wszystkie ({{ foods.length }})</button>
+          <button v-if="favoriteFoodsCount" @click="foodFilter = 'favorites'" :class="foodFilter === 'favorites' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">⭐ Moje ({{ favoriteFoodsCount }})</button>
           <button @click="foodFilter = 'keto'" :class="foodFilter === 'keto' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟢 Idealne Keto</button>
           <button @click="foodFilter = 'moderate'" :class="foodFilter === 'moderate' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟡 Umiarkowane</button>
           <button @click="foodFilter = 'avoid'" :class="foodFilter === 'avoid' ? 'bg-red-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🔴 Wysokowęglowodanowe (Zamienniki)</button>
@@ -651,14 +652,22 @@
       <div class="space-y-2.5">
         <div v-for="food in filteredFoods" :key="food.id" class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 space-y-2">
           <div class="flex justify-between items-start gap-2">
-            <div class="min-w-0">
+            <button @click="toggleFoodFavorite(food)" class="shrink-0 p-0.5 -ml-0.5"
+                    :title="food.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'"
+                    :class="food.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'">
+              <i class="text-lg" :class="food.favorite ? 'ph-fill ph-star' : 'ph ph-star'"></i>
+            </button>
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(food).class">
                   {{ getKetoLabelStyle(food).text }}
                 </span>
               </div>
-              <p class="text-xs text-slate-400 mt-0.5">{{ food.tip }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">
+                {{ food.tip }}
+                <template v-if="food.usageCount"> · dodano {{ food.usageCount }}×</template>
+              </p>
             </div>
             <button @click="openQuickAddFromDb(food)" class="bg-emerald-500/20 hover:bg-emerald-500 hover:text-white text-emerald-400 border border-emerald-500/40 rounded-lg px-2.5 py-1 text-xs font-bold shrink-0 transition">
               + Do dziennika
@@ -1269,6 +1278,19 @@
         </div>
       </div>
 
+      <!-- Skróty: ulubione i ostatnio używane produkty -->
+      <div v-if="addModal.mode === 'foods' && !addModal.search && quickPickFoods.length" class="shrink-0">
+        <p class="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-1.5">Ulubione i ostatnio używane</p>
+        <div class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          <button v-for="food in quickPickFoods" :key="'qp_' + food.id" @click="confirmAddFood(food)"
+                  class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-200 shrink-0 whitespace-nowrap flex items-center gap-1.5 active:scale-95 transition">
+            <i v-if="food.favorite" class="ph-fill ph-star text-amber-400 text-xs"></i>
+            <span class="w-1.5 h-1.5 rounded-full" :class="getKetoBadgeColor(food)"></span>
+            {{ food.name }}
+          </button>
+        </div>
+      </div>
+
       <!-- Lista wyboru: produkty -->
       <div v-if="addModal.mode === 'foods'" class="overflow-y-auto space-y-2 flex-1 min-h-0 pr-1 -mr-1">
         <div v-if="!modalFilteredFoods.length" class="text-center text-xs text-slate-500 italic py-6">
@@ -1276,7 +1298,12 @@
         </div>
         <div v-for="food in modalFilteredFoods" :key="food.id"
              class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center gap-2">
-          <div class="min-w-0">
+          <button @click="toggleFoodFavorite(food)" class="shrink-0 p-1 -ml-1"
+                  :title="food.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'"
+                  :class="food.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'">
+            <i class="text-base" :class="food.favorite ? 'ph-fill ph-star' : 'ph ph-star'"></i>
+          </button>
+          <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full shrink-0" :class="getKetoBadgeColor(food)"></span>
               <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
@@ -1761,7 +1788,9 @@ createApp({
       }
     ];
 
-    const foods = ref([...DEFAULT_FOODS]);
+    // Głęboka kopia: oznaczanie ulubionych i licznik użyć modyfikują produkty,
+    // a stała DEFAULT_FOODS musi zostać nietknięta.
+    const foods = ref(DEFAULT_FOODS.map(f => ({ ...f })));
 
     // Gotowe posiłki (szablony całych dań – np. pudełka z cateringu, keto sernik).
     // Makro trzymane ZA CAŁĄ PORCJĘ, nie na 100 g.
@@ -1997,20 +2026,69 @@ createApp({
       return { text: 'UNIKAJ NA KETO (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-red-950 text-red-300 border border-red-700' };
     };
 
+    /* ------------------------------------------------------------------ */
+    /* ULUBIONE I OSTATNIO UŻYWANE PRODUKTY                                 */
+    /* ------------------------------------------------------------------ */
+
+    // Produkt dopisany do dziennika awansuje w wyszukiwarce: baza rośnie,
+    // a i tak codziennie wraca ta sama garstka pozycji z pudełek.
+    const touchFood = (food) => {
+      const stored = foods.value.find(f => f.id === food.id);
+      if (!stored) return;
+      stored.usageCount = (stored.usageCount || 0) + 1;
+      stored.lastUsed = Date.now();
+    };
+
+    const toggleFoodFavorite = (food) => {
+      const stored = foods.value.find(f => f.id === food.id) || food;
+      stored.favorite = !stored.favorite;
+      saveAll();
+      showToast(stored.favorite ? `Dodano do ulubionych: ${stored.name}` : `Usunięto z ulubionych: ${stored.name}`);
+    };
+
+    // Ulubione na samej górze, dalej ostatnio używane, potem najczęstsze.
+    const byFavoriteAndRecency = (a, b) => {
+      const fav = (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+      if (fav) return fav;
+      const recent = (b.lastUsed || 0) - (a.lastUsed || 0);
+      if (recent) return recent;
+      const used = (b.usageCount || 0) - (a.usageCount || 0);
+      if (used) return used;
+      return a.name.localeCompare(b.name, 'pl');
+    };
+
+    const isRecentFood = (food) => !!food.lastUsed || !!food.favorite;
+
+    // Skróty nad listą w modalu – jeden klik zamiast przewijania całej bazy
+    const quickPickFoods = computed(() => {
+      return foods.value
+        .filter(isRecentFood)
+        .sort(byFavoriteAndRecency)
+        .slice(0, 8);
+    });
+
     // Filtrowanie bazy produktów
     const filteredFoods = computed(() => {
-      return foods.value.filter(f => {
+      const list = foods.value.filter(f => {
         const matchesSearch = f.name.toLowerCase().includes(foodSearchQuery.value.toLowerCase());
         const nc = getNetCarbs(f);
+        if (foodFilter.value === 'favorites') return matchesSearch && (f.favorite || f.lastUsed);
         if (foodFilter.value === 'keto') return matchesSearch && nc <= 6;
         if (foodFilter.value === 'moderate') return matchesSearch && nc > 6 && nc <= 18;
         if (foodFilter.value === 'avoid') return matchesSearch && nc > 18;
         return matchesSearch;
       });
+      if (foodFilter.value === 'favorites') return [...list].sort(byFavoriteAndRecency);
+      // W pozostałych widokach zachowujemy kolejność bazy, ulubione tylko wysuwamy na górę
+      return [...list].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
     });
 
+    const favoriteFoodsCount = computed(() => foods.value.filter(isRecentFood).length);
+
     const modalFilteredFoods = computed(() => {
-      return foods.value.filter(f => f.name.toLowerCase().includes(addModal.search.toLowerCase()));
+      const q = addModal.search.trim().toLowerCase();
+      const list = foods.value.filter(f => f.name.toLowerCase().includes(q));
+      return [...list].sort(byFavoriteAndRecency);
     });
 
     // Dodawanie / Usuwanie z dziennika
@@ -2039,6 +2117,7 @@ createApp({
         food: JSON.parse(JSON.stringify(food)),
         grams: addModal.grams || 100
       });
+      touchFood(food);
       touchLastMeal();
       saveAll();
       addModal.open = false;
@@ -2053,6 +2132,7 @@ createApp({
         food: JSON.parse(JSON.stringify(food)),
         grams: portion
       });
+      touchFood(food);
       touchLastMeal();
       saveAll();
       activeTab.value = 'diary';
@@ -3346,7 +3426,8 @@ createApp({
       electrolytes, showHydration, todayHydration, hydrationPercent, addHydration, hydrationAdvice,
       fasting, fastingProtocols, fastingState, fastingTimeInput, setFastingProtocol, markMealNow, setLastMealTime,
       carbLevels, carbLevel, carbSliderPercent, carbPercentOf, setCarbTarget,
-      dbView, foodSearchQuery, foodFilter, filteredFoods,
+      dbView, foodSearchQuery, foodFilter, filteredFoods, favoriteFoodsCount,
+      toggleFoodFavorite, quickPickFoods,
       showCustomFoodForm, newFood, addCustomFood,
       meals, mealCategories, mealSearchQuery, mealCategoryFilter, mealSort, filteredMeals, modalFilteredMeals,
       showMealForm, mealForm, mealFormNetCarbs, estimatedMealKcal, autoCalcMealKcal,
