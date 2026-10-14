@@ -8,10 +8,17 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KetoAsystent">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Osobisty asystent diety ketogenicznej: licznik węglowodanów netto, gotowe posiłki, nawodnienie i elektrolity.">
   <title>KetoAsystent PRO – Osobisty Asystent Diety Ketogenicznej</title>
 
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PWA: instalacja na ekranie głównym i praca offline -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+
+  <!-- Biblioteki trzymamy lokalnie – aplikacja musi działać bez internetu -->
+  <script src="./vendor/tailwind.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -31,10 +38,10 @@
     }
   </script>
 
-  <!-- Vue 3 & Chart.js & Ikony Phosphor -->
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Vue 3 & Chart.js & Ikony Phosphor (lokalnie, offline-first) -->
+  <script src="./vendor/vue.global.prod.js"></script>
+  <script src="./vendor/chart.umd.js"></script>
+  <link rel="stylesheet" href="./vendor/phosphor.css">
 
   <style>
     /* Optymalizacja pod iOS Safari */
@@ -60,6 +67,63 @@
       max-height: 88dvh;
       padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
     }
+
+    /* Suwak limitu węglowodanów – kolor wypełnienia i uchwytu zależy od poziomu
+       restrykcyjności (zmienne --pct i --col ustawiane z Vue). */
+    .carb-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 32px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .carb-slider::-webkit-slider-runnable-track {
+      height: 10px;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, var(--col) var(--pct), #020617 var(--pct));
+      border: 1px solid #334155;
+    }
+    .carb-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 26px;
+      height: 26px;
+      margin-top: -9px;
+      border-radius: 9999px;
+      background: #f8fafc;
+      border: 4px solid var(--col);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+    }
+    .carb-slider::-moz-range-track {
+      height: 10px;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, var(--col) var(--pct), #020617 var(--pct));
+      border: 1px solid #334155;
+    }
+    .carb-slider::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      background: #f8fafc;
+      border: 4px solid var(--col);
+    }
+
+    /* Powiadomienia (potwierdzenia zapisu) */
+    .toast-enter-active, .toast-leave-active { transition: opacity .18s ease, transform .18s ease; }
+    .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(10px); }
+
+    /* Ikona kalendarza zabiera miejsce potrzebne na samą datę; na telefonie
+       pole i tak otwiera picker po dotknięciu, a obok są strzałki. */
+    .header-date input::-webkit-calendar-picker-indicator { display: none; }
+
+    /* Na bardzo wąskich ekranach (iPhone SE) wybór daty schodzi do własnego
+       wiersza – inaczej nachodziłby na tytuł aplikacji. */
+    @media (max-width: 359px) {
+      .app-header { flex-wrap: wrap; row-gap: .5rem; }
+      .app-header .header-date { width: 100%; justify-content: space-between; }
+      .app-header .header-date input { flex: 1; }
+    }
   </style>
 </head>
 <body class="antialiased selection:bg-emerald-500 selection:text-white">
@@ -67,22 +131,27 @@
 <div id="app" class="max-w-md mx-auto min-h-screen flex flex-col justify-between relative px-4 pt-4">
 
   <!-- NAGŁÓWEK -->
-  <header class="flex items-center justify-between py-3 border-b border-slate-800 mb-4 sticky top-0 bg-slate-900/95 backdrop-blur z-30">
-    <div class="flex items-center gap-2">
-      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+  <header class="app-header flex items-center justify-between gap-2 py-3 border-b border-slate-800 mb-4 sticky top-0 bg-slate-900/95 backdrop-blur z-30">
+    <div class="flex items-center gap-2 min-w-0">
+      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
         <i class="ph-fill ph-avocado text-2xl"></i>
       </div>
-      <div>
-        <h1 class="font-bold text-lg leading-tight tracking-tight">KetoAsystent <span class="text-xs font-normal text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800">NETTO</span></h1>
-        <p class="text-xs text-slate-400">Kontrola ketozy i makroskładników</p>
+      <div class="min-w-0">
+        <h1 class="font-bold text-lg leading-tight tracking-tight truncate">KetoAsystent</h1>
+        <p v-if="isOffline" class="text-xs text-amber-400 flex items-center gap-1 truncate" title="Tryb offline – dane zapisują się lokalnie">
+          <i class="ph-bold ph-wifi-slash shrink-0"></i> Offline – zapis lokalny
+        </p>
+        <p v-else class="text-xs text-slate-400 truncate">
+          <span class="text-emerald-400 font-semibold">NETTO</span> · Kontrola ketozy
+        </p>
       </div>
     </div>
 
     <!-- Wybór daty -->
-    <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700">
-      <button @click="changeDate(-1)" class="p-1.5 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-left"></i></button>
-      <input type="date" v-model="selectedDate" class="bg-transparent text-xs font-semibold text-center w-28 focus:outline-none text-slate-200">
-      <button @click="changeDate(1)" class="p-1.5 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-right"></i></button>
+    <div class="header-date flex items-center gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700 shrink-0">
+      <button @click="changeDate(-1)" class="p-1 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-left"></i></button>
+      <input type="date" v-model="selectedDate" class="bg-transparent text-xs font-semibold text-center w-[5.75rem] focus:outline-none text-slate-200">
+      <button @click="changeDate(1)" class="p-1 hover:text-emerald-400 active:scale-95 transition"><i class="ph-bold ph-caret-right"></i></button>
     </div>
   </header>
 
@@ -122,7 +191,7 @@
 
         <div class="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-slate-400 mt-2 pt-2 border-t border-slate-700/60">
           <span>Węglowodany całk.: <strong class="text-slate-200">{{ dailyTotals.carbs.toFixed(1) }} g</strong></span>
-          <span>Błonnik (odliczany): <strong class="text-emerald-400">-{{ dailyTotals.fiber.toFixed(1) }} g</strong></span>
+          <span>Błonnik (odliczany): <strong class="text-emerald-400">{{ dailyTotals.fiber > 0 ? '−' : '' }}{{ dailyTotals.fiber.toFixed(1) }} g</strong></span>
           <span v-if="remainingMacro.netCarbs >= 0">Zostało: <strong class="text-emerald-300">{{ remainingMacro.netCarbs.toFixed(1) }} g</strong></span>
           <span v-else class="text-red-400 font-bold">Przekroczono o {{ Math.abs(remainingMacro.netCarbs).toFixed(1) }} g!</span>
         </div>
@@ -168,22 +237,106 @@
       </div>
 
       <!-- SZYBKI ZAPIS WAGI NA DZIŚ -->
-      <div class="bg-slate-800/50 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <i class="ph-duotone ph-scales text-xl text-emerald-400"></i>
-          <div>
-            <div class="text-xs font-semibold text-slate-200">Dzisiejsza waga ({{ selectedDate }})</div>
-            <div class="text-[11px] text-slate-400">Zapisz, aby aktualizować wykres postępów</div>
+      <div class="bg-slate-800/50 border border-slate-800 rounded-xl p-3 space-y-2.5">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <i class="ph-duotone ph-scales text-xl text-emerald-400 shrink-0"></i>
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-slate-200">Waga na dzień {{ selectedDate }}</div>
+              <div class="text-[11px] text-slate-400">Zapisz, aby aktualizować wykres postępów</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <div class="relative">
+              <input type="text" inputmode="decimal" v-model="todayWeightInput" placeholder="np. 84,5"
+                     @keyup.enter="saveDailyWeight"
+                     class="w-24 bg-slate-900 border border-slate-700 rounded-lg pl-2.5 pr-7 py-1.5 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none">
+              <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-500 pointer-events-none">kg</span>
+            </div>
+            <button @click="saveDailyWeight" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-lg active:scale-95 transition">
+              Zapisz
+            </button>
           </div>
         </div>
-        <div class="flex items-center gap-1.5">
-          <input type="number" step="0.1" v-model.number="todayWeightInput" placeholder="np. 84.5"
-                 class="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-center font-bold focus:border-emerald-500 focus:outline-none">
-          <button @click="saveDailyWeight" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-lg active:scale-95 transition">
-            Zapisz
-          </button>
+        <p v-if="weightSummary" class="text-[11px] text-slate-400 border-t border-slate-700/60 pt-2">
+          {{ weightSummary }}
+        </p>
+      </div>
+
+      <!-- NAWODNIENIE I ELEKTROLITY (profilaktyka "keto grypy") -->
+      <div class="bg-slate-800/70 border border-slate-700/70 rounded-2xl overflow-hidden">
+        <button @click="showHydration = !showHydration"
+                class="w-full px-4 py-3 flex justify-between items-center gap-2 bg-slate-800">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <i class="ph-duotone ph-drop text-xl text-sky-400 shrink-0"></i>
+            <div class="text-left min-w-0">
+              <h3 class="font-bold text-sm leading-none">Nawodnienie i elektrolity</h3>
+              <span class="text-[11px] text-slate-400">
+                {{ todayHydration.water }} / {{ targets.water }} ml · Na {{ todayHydration.sodium }} · K {{ todayHydration.potassium }} · Mg {{ todayHydration.magnesium }} mg
+              </span>
+            </div>
+          </div>
+          <i class="ph-bold text-slate-400 shrink-0" :class="showHydration ? 'ph-caret-down' : 'ph-caret-right'"></i>
+        </button>
+
+        <div v-show="showHydration" class="p-4 space-y-4 border-t border-slate-700/60">
+          <!-- Woda -->
+          <div class="space-y-2">
+            <div class="flex justify-between items-end">
+              <span class="text-xs font-bold text-sky-300">💧 Woda</span>
+              <span class="text-xs text-slate-400">
+                <strong class="text-white text-sm">{{ todayHydration.water }}</strong> / {{ targets.water }} ml
+              </span>
+            </div>
+            <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+              <div class="h-full bg-sky-400 rounded-full transition-all" :style="{ width: hydrationPercent('water') + '%' }"></div>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button v-for="ml in [250, 500, 750]" :key="ml" @click="addHydration('water', ml)"
+                      class="bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition">
+                +{{ ml }} ml
+              </button>
+              <button @click="addHydration('water', -250)"
+                      class="bg-slate-900 border border-slate-700 text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-bold">
+                −250
+              </button>
+            </div>
+          </div>
+
+          <!-- Elektrolity -->
+          <div v-for="el in electrolytes" :key="el.key" class="space-y-1.5 pt-3 border-t border-slate-700/50">
+            <div class="flex justify-between items-end gap-2">
+              <span class="text-xs font-bold" :class="el.textClass">{{ el.icon }} {{ el.name }}</span>
+              <span class="text-xs text-slate-400">
+                <strong class="text-white">{{ todayHydration[el.key] }}</strong> / {{ targets[el.key] }} mg
+              </span>
+            </div>
+            <div class="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+              <div class="h-full rounded-full transition-all" :class="el.barClass" :style="{ width: hydrationPercent(el.key) + '%' }"></div>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button v-for="p in el.presets" :key="p.label" @click="addHydration(el.key, p.mg)"
+                      class="bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-700 px-2 py-1 rounded-lg text-[11px] font-semibold active:scale-95 transition">
+                +{{ p.mg }} <span class="text-slate-500">· {{ p.label }}</span>
+              </button>
+              <button @click="addHydration(el.key, -el.presets[0].mg)"
+                      class="bg-slate-900 border border-slate-700 text-slate-500 hover:text-white px-2 py-1 rounded-lg text-[11px] font-bold">−</button>
+            </div>
+          </div>
+
+          <p class="text-[11px] leading-relaxed rounded-lg p-2.5 border"
+             :class="hydrationAdvice.class">
+            {{ hydrationAdvice.text }}
+          </p>
         </div>
       </div>
+
+      <!-- KOPIOWANIE CAŁEGO DNIA -->
+      <button @click="openCopyModal('day')"
+              class="w-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl py-2.5 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 active:scale-98 transition">
+        <i class="ph-bold ph-copy text-base text-sky-400"></i>
+        Skopiuj jadłospis z innego dnia
+      </button>
 
       <!-- SEKCJE POSIŁKÓW (Podział na pory dnia) -->
       <div class="space-y-4">
@@ -206,6 +359,11 @@
                       title="Zapisz ten posiłek jako gotowy szablon"
                       class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/40 text-sky-400 flex items-center justify-center hover:bg-sky-500 hover:text-white active:scale-90 transition">
                 <i class="ph-bold ph-bookmark-simple"></i>
+              </button>
+              <button v-else @click="openCopyModal(slot.id)"
+                      title="Skopiuj ten posiłek z innego dnia"
+                      class="w-8 h-8 rounded-lg bg-slate-700/60 border border-slate-600 text-slate-300 flex items-center justify-center hover:bg-sky-600 hover:text-white active:scale-90 transition">
+                <i class="ph-bold ph-copy"></i>
               </button>
               <button @click="openAddModal(slot.id)" class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center hover:bg-emerald-500 hover:text-white active:scale-90 transition">
                 <i class="ph-bold ph-plus"></i>
@@ -237,8 +395,12 @@
                   💡 Zamiennik keto: <strong>{{ entry.food.substitute }}</strong>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center gap-1.5 shrink-0">
                 <span class="text-xs font-bold text-slate-300">{{ calcMacro(entry.food.kcal, entry.grams).toFixed(0) }} kcal</span>
+                <button @click="openEditEntry(entry)" title="Zmień ilość lub porę dnia"
+                        class="text-slate-500 hover:text-emerald-400 p-1">
+                  <i class="ph-bold ph-pencil-simple"></i>
+                </button>
                 <button @click="removeDiaryEntry(entry.entryId)" class="text-slate-500 hover:text-red-400 p-1">
                   <i class="ph-bold ph-trash"></i>
                 </button>
@@ -253,6 +415,62 @@
     <!-- ZAKŁADKA 2: ASYSTENT KETO I PORADY         -->
     <!-- ========================================== -->
     <div v-if="activeTab === 'advisor'" class="space-y-5">
+
+      <!-- TIMER OKNA ŻYWIENIOWEGO (POST PRZERYWANY) -->
+      <div class="bg-slate-800/90 border rounded-2xl p-4 space-y-3.5" :class="fastingState.borderClass">
+        <h3 class="font-bold text-sm text-white flex items-center gap-2">
+          <i class="ph-duotone ph-timer text-lg" :class="fastingState.iconClass"></i>
+          Post przerywany
+          <span class="text-[11px] font-normal text-slate-400">okno żywieniowe</span>
+        </h3>
+        <div class="grid grid-cols-6 gap-1">
+          <button v-for="pr in fastingProtocols" :key="pr.hours" @click="setFastingProtocol(pr.hours)"
+                  :class="fasting.protocol === pr.hours ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'"
+                  class="py-1.5 rounded-lg text-[11px] font-bold">{{ pr.label }}</button>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <!-- Pierścień postępu -->
+          <div class="relative w-28 h-28 shrink-0">
+            <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="#020617" stroke-width="12"/>
+              <circle cx="60" cy="60" r="52" fill="none" stroke-width="12" stroke-linecap="round"
+                      :stroke="fastingState.color"
+                      stroke-dasharray="326.7"
+                      :stroke-dashoffset="326.7 * (1 - fastingState.progress)"
+                      style="transition: stroke-dashoffset .4s ease"/>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span class="text-xl font-black leading-none" :class="fastingState.textClass">{{ fastingState.bigValue }}</span>
+              <span class="text-[10px] text-slate-400 mt-0.5">{{ fastingState.bigLabel }}</span>
+            </div>
+          </div>
+
+          <div class="min-w-0 space-y-1.5">
+            <div>
+              <span class="text-xs font-bold block" :class="fastingState.textClass">{{ fastingState.title }}</span>
+              <span class="text-[11px] text-slate-400">{{ fastingState.subtitle }}</span>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Ostatni posiłek:
+              <strong class="text-slate-200">{{ fastingState.lastMealLabel }}</strong>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button @click="markMealNow"
+                      class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold active:scale-95 transition">
+                Jem teraz
+              </button>
+              <input type="time" :value="fastingTimeInput" @change="setLastMealTime($event.target.value)"
+                     class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-200">
+            </div>
+          </div>
+        </div>
+
+        <p class="text-[11px] leading-relaxed rounded-lg p-2.5 border" :class="fastingState.adviceClass">
+          {{ fastingState.advice }}
+        </p>
+      </div>
+
       <div class="bg-gradient-to-br from-emerald-950/80 to-slate-900 border border-emerald-700/50 rounded-2xl p-4 shadow-lg">
         <div class="flex items-center gap-2 text-emerald-400 font-bold text-sm mb-1">
           <i class="ph-fill ph-sparkle text-lg"></i>
@@ -353,11 +571,18 @@
         </div>
         <div class="flex gap-1.5 overflow-x-auto no-scrollbar text-xs">
           <button @click="foodFilter = 'all'" :class="foodFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">Wszystkie ({{ foods.length }})</button>
+          <button v-if="favoriteFoodsCount" @click="foodFilter = 'favorites'" :class="foodFilter === 'favorites' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">⭐ Moje ({{ favoriteFoodsCount }})</button>
           <button @click="foodFilter = 'keto'" :class="foodFilter === 'keto' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟢 Idealne Keto</button>
           <button @click="foodFilter = 'moderate'" :class="foodFilter === 'moderate' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🟡 Umiarkowane</button>
           <button @click="foodFilter = 'avoid'" :class="foodFilter === 'avoid' ? 'bg-red-600 text-white' : 'bg-slate-900 text-slate-400'" class="px-3 py-1.5 rounded-lg font-semibold shrink-0">🔴 Wysokowęglowodanowe (Zamienniki)</button>
         </div>
       </div>
+
+      <!-- Skaner kodów kreskowych -->
+      <button @click="openScanner"
+              class="w-full bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 text-white rounded-xl p-3 text-sm font-bold flex items-center justify-center gap-2 active:scale-98 transition shadow">
+        <i class="ph-bold ph-barcode text-lg"></i> Skanuj kod kreskowy produktu
+      </button>
 
       <!-- Przyciski: Dodaj własny produkt / Szukaj w Open Food Facts API -->
       <div class="grid grid-cols-2 gap-2">
@@ -441,14 +666,22 @@
       <div class="space-y-2.5">
         <div v-for="food in filteredFoods" :key="food.id" class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 space-y-2">
           <div class="flex justify-between items-start gap-2">
-            <div class="min-w-0">
+            <button @click="toggleFoodFavorite(food)" class="shrink-0 p-0.5 -ml-0.5"
+                    :title="food.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'"
+                    :class="food.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'">
+              <i class="text-lg" :class="food.favorite ? 'ph-fill ph-star' : 'ph ph-star'"></i>
+            </button>
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(food).class">
                   {{ getKetoLabelStyle(food).text }}
                 </span>
               </div>
-              <p class="text-xs text-slate-400 mt-0.5">{{ food.tip }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">
+                {{ food.tip }}
+                <template v-if="food.usageCount"> · dodano {{ food.usageCount }}×</template>
+              </p>
             </div>
             <button @click="openQuickAddFromDb(food)" class="bg-emerald-500/20 hover:bg-emerald-500 hover:text-white text-emerald-400 border border-emerald-500/40 rounded-lg px-2.5 py-1 text-xs font-bold shrink-0 transition">
               + Do dziennika
@@ -688,6 +921,113 @@
     <!-- ZAKŁADKA 4: HISTORIA I WYKRESY             -->
     <!-- ========================================== -->
     <div v-if="activeTab === 'charts'" class="space-y-5">
+
+      <!-- PODSUMOWANIE TYGODNIA -->
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <h3 class="font-bold text-sm text-white flex items-center gap-2">
+              <i class="ph-fill ph-chart-pie-slice text-emerald-400 text-lg"></i>
+              Podsumowanie tygodnia
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+              7 dni do {{ selectedDate }} ·
+              <template v-if="weeklySummary.daysLogged">
+                {{ weeklySummary.daysLogged }} {{ plural(weeklySummary.daysLogged, 'dzień z wpisami', 'dni z wpisami', 'dni z wpisami') }}
+              </template>
+              <template v-else>brak wpisów</template>
+            </p>
+          </div>
+          <div v-if="weeklySummary.daysLogged" class="text-right shrink-0">
+            <div class="text-xl font-black leading-none"
+                 :class="weeklySummary.limitRatio >= 0.85 ? 'text-emerald-400' : (weeklySummary.limitRatio >= 0.5 ? 'text-amber-400' : 'text-red-400')">
+              {{ weeklySummary.daysInLimit }}/{{ weeklySummary.daysLogged }}
+            </div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide mt-0.5">dni w limicie</div>
+          </div>
+        </div>
+
+        <div v-if="weeklySummary.daysLogged" class="grid grid-cols-2 gap-2">
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. węgle netto</div>
+            <div class="text-lg font-bold leading-tight"
+                 :class="weeklySummary.avgNetCarbs <= targets.netCarbs ? 'text-emerald-400' : 'text-red-400'">
+              {{ weeklySummary.avgNetCarbs.toFixed(1) }}<span class="text-xs font-semibold"> g</span>
+            </div>
+            <div class="text-[10px] text-slate-500">cel {{ targets.netCarbs }} g</div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. kalorie</div>
+            <div class="text-lg font-bold text-white leading-tight">
+              {{ Math.round(weeklySummary.avgKcal) }}<span class="text-xs font-semibold"> kcal</span>
+            </div>
+            <div class="text-[10px]" :class="weeklySummary.kcalDiff > 0 ? 'text-amber-400' : 'text-emerald-400'">
+              {{ weeklySummary.kcalDiff > 0 ? '+' : '' }}{{ weeklySummary.kcalDiff }} kcal vs cel
+            </div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Śr. tłuszcz / białko</div>
+            <div class="text-lg font-bold text-white leading-tight">
+              {{ Math.round(weeklySummary.avgFat) }}<span class="text-xs font-semibold"> g</span>
+              <span class="text-slate-600 text-sm"> / </span>
+              {{ Math.round(weeklySummary.avgProtein) }}<span class="text-xs font-semibold"> g</span>
+            </div>
+            <div class="text-[10px] text-slate-500">cel {{ targets.fat }} / {{ targets.protein }} g</div>
+          </div>
+          <div class="bg-slate-900/80 border border-slate-700/70 rounded-xl p-2.5">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wide">Trend wagi</div>
+            <template v-if="weeklySummary.weight">
+              <div class="text-lg font-bold leading-tight"
+                   :class="weeklySummary.weight.delta < 0 ? 'text-emerald-400' : (weeklySummary.weight.delta > 0 ? 'text-amber-400' : 'text-slate-300')">
+                {{ weeklySummary.weight.delta > 0 ? '+' : '' }}{{ weeklySummary.weight.delta.toFixed(1) }}<span class="text-xs font-semibold"> kg</span>
+              </div>
+              <div class="text-[10px] text-slate-500">
+                {{ weeklySummary.weight.from.toFixed(1) }} → {{ weeklySummary.weight.to.toFixed(1) }} kg
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-lg font-bold text-slate-500 leading-tight">—</div>
+              <div class="text-[10px] text-slate-500">dodaj pomiary wagi</div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Mini-pasek dni: od razu widać, który dzień wyłamał się z limitu.
+             Skala sięga 150% celu, więc linia limitu wypada zawsze na 2/3 wysokości. -->
+        <div v-if="weeklySummary.daysLogged" class="pt-1">
+          <div class="relative h-12 flex items-end gap-1.5">
+            <div class="absolute inset-x-0 border-t border-dashed border-slate-500/70 pointer-events-none" style="bottom: 66.7%"></div>
+            <div v-for="day in weeklySummary.days" :key="day.key"
+                 class="flex-1 min-w-0 rounded-t"
+                 :class="!day.logged ? 'bg-slate-700/60' : (day.netCarbs <= targets.netCarbs ? 'bg-emerald-500' : 'bg-red-500')"
+                 :style="{ height: day.logged ? Math.max(6, Math.min(100, (day.netCarbs / Math.max(targets.netCarbs * 1.5, 1)) * 100)) + '%' : '5%' }"
+                 :title="formatDayLabel(day.key) + ': ' + day.netCarbs.toFixed(1) + ' g'"></div>
+          </div>
+          <div class="flex gap-1.5 mt-1">
+            <div v-for="day in weeklySummary.days" :key="day.key" class="flex-1 min-w-0 text-center text-[9px] text-slate-500">
+              {{ day.key.slice(8) }}
+            </div>
+          </div>
+          <p class="text-[9px] text-slate-500 mt-1 text-right">linia przerywana = limit {{ targets.netCarbs }} g</p>
+        </div>
+
+        <div class="border rounded-xl p-3 text-[11px] leading-relaxed" :class="verdictClasses[weeklySummary.verdict.tone]">
+          <strong class="block text-xs mb-0.5">{{ weeklySummary.verdict.title }}</strong>
+          {{ weeklySummary.verdict.text }}
+        </div>
+
+        <div v-if="weeklySummary.daysLogged > 1" class="grid grid-cols-2 gap-2 text-[11px]">
+          <div class="bg-slate-900/60 border border-slate-700/60 rounded-xl px-2.5 py-2">
+            <div class="text-emerald-400 font-bold">Najlepszy dzień</div>
+            <div class="text-slate-300">{{ formatDayLabel(weeklySummary.bestDay.key) }} · {{ weeklySummary.bestDay.netCarbs.toFixed(1) }} g</div>
+          </div>
+          <div class="bg-slate-900/60 border border-slate-700/60 rounded-xl px-2.5 py-2">
+            <div class="text-amber-400 font-bold">Najsłabszy dzień</div>
+            <div class="text-slate-300">{{ formatDayLabel(weeklySummary.worstDay.key) }} · {{ weeklySummary.worstDay.netCarbs.toFixed(1) }} g</div>
+          </div>
+        </div>
+      </div>
+
       <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4">
         <h3 class="font-bold text-sm text-white mb-1">📉 Historia Węglowodanów Netto (Ostatnie 7 dni)</h3>
         <p class="text-xs text-slate-400 mb-3">Kontrola utrzymania progu ketozy (cel: {{ targets.netCarbs }}g)</p>
@@ -777,13 +1117,56 @@
           <span class="text-[11px] text-slate-400">Możesz dostosować własny próg</span>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 text-xs">
-          <div>
-            <label class="text-emerald-300 font-bold block mb-1">Limit Węglowodanów NETTO (g)</label>
-            <input type="number" v-model.number="targets.netCarbs" @change="saveAll"
-                   class="w-full bg-slate-900 border border-emerald-500 rounded-xl px-3 py-2 text-emerald-300 font-bold">
-            <span class="text-[10px] text-slate-400">Strict Keto: 20g | Standard: 30g | Active: 50g</span>
+        <!-- Suwak dziennego limitu węglowodanów netto -->
+        <div class="bg-slate-900/70 border border-slate-700 rounded-xl p-3.5 space-y-3">
+          <div class="flex justify-between items-end gap-2">
+            <div class="min-w-0">
+              <label class="text-emerald-300 font-bold text-xs block">Ile węglowodanów dziennie?</label>
+              <span class="text-[11px] font-semibold" :class="carbLevel.textClass">{{ carbLevel.name }}</span>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="text-3xl font-black leading-none" :class="carbLevel.textClass">{{ targets.netCarbs }}</span>
+              <span class="text-xs text-slate-400 font-semibold"> g netto</span>
+            </div>
           </div>
+
+          <div>
+            <input type="range" min="10" max="80" step="1" class="carb-slider"
+                   v-model.number="targets.netCarbs" @change="saveAll"
+                   :style="{ '--pct': carbSliderPercent + '%', '--col': carbLevel.color }">
+            <div class="relative h-4 -mt-1">
+              <span v-for="t in [10, 20, 30, 50, 80]" :key="t"
+                    class="absolute -translate-x-1/2 text-[10px] text-slate-500"
+                    :style="{ left: 'clamp(3%, ' + carbPercentOf(t) + '%, 97%)' }">{{ t }}</span>
+            </div>
+          </div>
+
+          <p class="text-[11px] text-slate-300 leading-relaxed bg-slate-950/60 border border-slate-800 rounded-lg p-2.5">
+            {{ carbLevel.desc }}
+          </p>
+
+          <!-- Ściągawka poziomów – kliknięcie ustawia suwak -->
+          <div class="border border-slate-800 rounded-lg overflow-hidden divide-y divide-slate-800">
+            <div class="grid grid-cols-5 bg-slate-950/80 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+              <span class="col-span-3">Poziom</span>
+              <span class="col-span-2 text-right">Węglowodany na dobę</span>
+            </div>
+            <button v-for="lvl in carbLevels" :key="lvl.id" @click="setCarbTarget(lvl.preset)"
+                    class="w-full grid grid-cols-5 px-2.5 py-2 text-[11px] text-left items-center transition"
+                    :class="carbLevel.id === lvl.id ? 'bg-slate-800' : 'hover:bg-slate-800/50'">
+              <span class="col-span-3 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :style="{ backgroundColor: lvl.color }"></span>
+                <span :class="carbLevel.id === lvl.id ? 'text-white font-bold' : 'text-slate-300'">{{ lvl.name }}</span>
+              </span>
+              <span class="col-span-2 text-right font-semibold" :class="lvl.id === 'high' ? 'text-red-400' : 'text-slate-300'">{{ lvl.range }}</span>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-500">
+            Limit dotyczy węglowodanów NETTO (całkowite minus błonnik). Po zmianie warto kliknąć „Przelicz cele Keto”, aby dopasować tłuszcz do kalorii.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-xs">
           <div>
             <label class="text-slate-300 block mb-1">Kalorie (kcal)</label>
             <input type="number" v-model.number="targets.kcal" @change="saveAll"
@@ -799,6 +1182,36 @@
             <input type="number" v-model.number="targets.protein" @change="saveAll"
                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
           </div>
+        </div>
+
+        <!-- Cele nawodnienia i elektrolitów -->
+        <div class="pt-3 border-t border-slate-700/60 space-y-2">
+          <h4 class="text-xs font-bold text-sky-300">💧 Nawodnienie i elektrolity (dziennie)</h4>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="text-slate-400 block mb-1">Woda (ml)</label>
+              <input type="number" step="50" v-model.number="targets.water" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Sód (mg)</label>
+              <input type="number" step="100" v-model.number="targets.sodium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Potas (mg)</label>
+              <input type="number" step="100" v-model.number="targets.potassium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+            <div>
+              <label class="text-slate-400 block mb-1">Magnez (mg)</label>
+              <input type="number" step="50" v-model.number="targets.magnesium" @change="saveAll"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white">
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-500">
+            Na diecie ketogenicznej organizm zatrzymuje mniej wody i sodu, dlatego zapotrzebowanie bywa wyższe niż na zwykłej diecie. Przy chorobach nerek lub nadciśnieniu skonsultuj te wartości z lekarzem.
+          </p>
         </div>
       </div>
 
@@ -879,6 +1292,19 @@
         </div>
       </div>
 
+      <!-- Skróty: ulubione i ostatnio używane produkty -->
+      <div v-if="addModal.mode === 'foods' && !addModal.search && quickPickFoods.length" class="shrink-0">
+        <p class="text-[10px] uppercase tracking-wide text-slate-500 font-bold mb-1.5">Ulubione i ostatnio używane</p>
+        <div class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          <button v-for="food in quickPickFoods" :key="'qp_' + food.id" @click="confirmAddFood(food)"
+                  class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-200 shrink-0 whitespace-nowrap flex items-center gap-1.5 active:scale-95 transition">
+            <i v-if="food.favorite" class="ph-fill ph-star text-amber-400 text-xs"></i>
+            <span class="w-1.5 h-1.5 rounded-full" :class="getKetoBadgeColor(food)"></span>
+            {{ food.name }}
+          </button>
+        </div>
+      </div>
+
       <!-- Lista wyboru: produkty -->
       <div v-if="addModal.mode === 'foods'" class="overflow-y-auto space-y-2 flex-1 min-h-0 pr-1 -mr-1">
         <div v-if="!modalFilteredFoods.length" class="text-center text-xs text-slate-500 italic py-6">
@@ -886,7 +1312,12 @@
         </div>
         <div v-for="food in modalFilteredFoods" :key="food.id"
              class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center gap-2">
-          <div class="min-w-0">
+          <button @click="toggleFoodFavorite(food)" class="shrink-0 p-1 -ml-1"
+                  :title="food.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'"
+                  :class="food.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'">
+            <i class="text-base" :class="food.favorite ? 'ph-fill ph-star' : 'ph ph-star'"></i>
+          </button>
+          <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full shrink-0" :class="getKetoBadgeColor(food)"></span>
               <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
@@ -938,6 +1369,276 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- MODAL SKANERA KODÓW KRESKOWYCH -->
+  <div v-if="scanModal.open" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white flex items-center gap-2 min-w-0">
+          <i class="ph-bold ph-barcode text-sky-400"></i> Skaner kodów
+        </h3>
+        <button @click="closeScanner" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-3 pr-1 -mr-1">
+        <!-- Podgląd z kamery -->
+        <div v-show="scanModal.phase === 'starting' || scanModal.phase === 'scanning'"
+             class="relative rounded-2xl overflow-hidden bg-black border border-slate-700 aspect-[4/3]">
+          <video id="scanVideo" playsinline muted autoplay class="w-full h-full object-cover"></video>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="w-4/5 h-24 border-2 border-emerald-400/90 rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,.45)]"></div>
+          </div>
+          <div class="absolute bottom-2 left-0 right-0 text-center text-[11px] text-white/90 font-semibold">
+            {{ scanModal.phase === 'starting' ? 'Uruchamiam kamerę…' : 'Ustaw kod kreskowy w ramce' }}
+          </div>
+        </div>
+
+        <!-- Szukanie w bazie -->
+        <div v-if="scanModal.phase === 'lookup'" class="text-center py-6 text-sm text-slate-300">
+          <i class="ph-bold ph-magnifying-glass text-2xl text-sky-400 block mb-2"></i>
+          Szukam kodu <strong class="text-white">{{ scanModal.code }}</strong> w Open Food Facts…
+        </div>
+
+        <!-- Błąd / brak wyniku -->
+        <div v-if="scanModal.phase === 'error'"
+             class="bg-amber-950/60 border border-amber-700/70 rounded-xl p-3 text-xs text-amber-200 leading-relaxed">
+          {{ scanModal.message }}
+        </div>
+
+        <!-- Znaleziony produkt -->
+        <div v-if="scanModal.phase === 'result' && scanModal.product" class="space-y-3">
+          <div class="bg-slate-800/90 border border-emerald-600/50 rounded-2xl p-3.5 space-y-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="w-2 h-2 rounded-full shrink-0" :class="getKetoBadgeColor(scanModal.product)"></span>
+              <span class="font-bold text-sm text-white break-words">{{ scanModal.product.name }}</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(scanModal.product).class">
+                {{ getKetoLabelStyle(scanModal.product).text }}
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400">Kod {{ scanModal.code }} · wartości na 100 g</p>
+            <div class="grid grid-cols-5 gap-1 text-center text-[11px]">
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">W.Netto</span>
+                <strong class="text-emerald-400 text-xs">{{ getNetCarbs(scanModal.product).toFixed(1) }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Węg.</span>
+                <strong class="text-slate-200">{{ scanModal.product.carbs }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Błonnik</span>
+                <strong class="text-slate-200">{{ scanModal.product.fiber }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Tłuszcz</span>
+                <strong class="text-amber-400">{{ scanModal.product.fat }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Białko</span>
+                <strong class="text-sky-400">{{ scanModal.product.protein }}g</strong>
+              </div>
+            </div>
+            <p v-if="!scanModal.product.fiber" class="text-[10px] text-amber-300/90">
+              Producent nie podał błonnika – węglowodany netto mogą być nieco zawyżone.
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button @click="saveScannedProduct(false)"
+                    class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-xl text-xs">
+              Zapisz w bazie
+            </button>
+            <button @click="saveScannedProduct(true)"
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs">
+              Zapisz i dodaj do dziennika
+            </button>
+          </div>
+        </div>
+
+        <!-- Ręczne wpisanie kodu (gdy kamera niedostępna albo kod się nie czyta) -->
+        <div class="bg-slate-800/70 border border-slate-700 rounded-xl p-3 space-y-2">
+          <span class="text-xs font-semibold text-slate-300">Albo wpisz kod z opakowania:</span>
+          <div class="flex gap-2">
+            <input type="text" inputmode="numeric" v-model="scanModal.manualCode" placeholder="np. 5900512300320"
+                   @keyup.enter="lookupBarcode(scanModal.manualCode)"
+                   class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+            <button @click="lookupBarcode(scanModal.manualCode)"
+                    class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-4 rounded-lg text-xs shrink-0">
+              Szukaj
+            </button>
+          </div>
+          <button v-if="scanModal.phase !== 'scanning' && scanModal.phase !== 'starting'" @click="openScanner"
+                  class="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5">
+            <i class="ph-bold ph-camera"></i> Skanuj ponownie
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EDYCJI WPISU W DZIENNIKU -->
+  <div v-if="editModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white min-w-0">Edytuj wpis</h3>
+        <button @click="editModal.open = false" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 shrink-0">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="editModal.isMeal ? getMealBadgeColor(editModal.food) : getKetoBadgeColor(editModal.food)"></span>
+          <span class="font-bold text-sm text-white break-words">{{ editModal.food.name }}</span>
+          <span v-if="editModal.isMeal" class="text-[10px] font-bold text-sky-300 bg-sky-950 border border-sky-800 px-1.5 py-0.5 rounded">POSIŁEK</span>
+        </div>
+      </div>
+
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-3 pr-1 -mr-1">
+        <!-- Pora dnia -->
+        <div>
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Pora dnia</span>
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            <button v-for="s in mealSlots" :key="s.id" @click="editModal.slotId = s.id"
+                    :class="editModal.slotId === s.id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-bold shrink-0 whitespace-nowrap">
+              {{ s.icon }} {{ s.name }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Ilość: gramy albo porcje -->
+        <div v-if="!editModal.isMeal">
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Ilość (gramy)</span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button v-for="g in [30, 50, 100, 150, 200]" :key="g" @click="editModal.grams = g"
+                    :class="editModal.grams === g ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded text-xs font-bold">{{ g }}g</button>
+            <input type="number" v-model.number="editModal.grams"
+                   class="w-20 bg-slate-950 border border-emerald-500/60 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-emerald-300">
+          </div>
+        </div>
+        <div v-else>
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Liczba porcji</span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button v-for="pp in [0.5, 1, 1.5, 2]" :key="pp" @click="editModal.portions = pp"
+                    :class="editModal.portions === pp ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded text-xs font-bold">{{ pp }}×</button>
+            <input type="number" step="0.5" min="0.1" v-model.number="editModal.portions"
+                   class="w-20 bg-slate-950 border border-sky-500/60 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-sky-300">
+          </div>
+        </div>
+
+        <!-- Podgląd makro po zmianie -->
+        <div class="grid grid-cols-4 gap-1 text-center text-[11px]">
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">W.Netto</span>
+            <strong class="text-emerald-400 text-xs">{{ editPreview.netCarbs }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Tłuszcz</span>
+            <strong class="text-amber-400">{{ editPreview.fat }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Białko</span>
+            <strong class="text-sky-400">{{ editPreview.protein }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Kalorie</span>
+            <strong class="text-rose-400">{{ editPreview.kcal }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 shrink-0">
+        <button @click="deleteFromEditModal"
+                class="bg-slate-800 hover:bg-red-600 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-white rounded-xl px-4 py-3 text-sm font-bold">
+          <i class="ph-bold ph-trash"></i>
+        </button>
+        <button @click="saveEditEntry"
+                class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm active:scale-98 transition">
+          Zapisz zmiany
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL KOPIOWANIA JADŁOSPISU Z INNEGO DNIA -->
+  <div v-if="copyModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white min-w-0">
+          Kopiuj <span class="text-sky-400">{{ copyModal.scope === 'day' ? 'cały dzień' : getSlotName(copyModal.scope) }}</span>
+        </h3>
+        <button @click="copyModal.open = false" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <p class="text-[11px] text-slate-400 shrink-0">
+        Wpisy zostaną dopisane do dnia <strong class="text-slate-200">{{ selectedDate }}</strong>.
+      </p>
+
+      <!-- Skąd kopiujemy -->
+      <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 space-y-2 shrink-0">
+        <span class="text-xs font-semibold text-slate-300">Skopiuj z dnia:</span>
+        <div class="flex gap-1.5 flex-wrap">
+          <button v-for="opt in copyQuickDates" :key="opt.date" @click="copyModal.sourceDate = opt.date"
+                  :class="copyModal.sourceDate === opt.date ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'"
+                  class="px-2.5 py-1.5 rounded-lg text-xs font-bold">{{ opt.label }}</button>
+        </div>
+        <input type="date" v-model="copyModal.sourceDate"
+               class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200">
+      </div>
+
+      <!-- Co zostanie skopiowane -->
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-2 pr-1 -mr-1">
+        <div v-if="!copyPreview.entries.length"
+             class="text-center text-xs text-slate-500 italic py-8 px-4 leading-relaxed">
+          W dniu {{ copyModal.sourceDate }} nie ma nic zapisanego
+          {{ copyModal.scope === 'day' ? '' : 'w tej porze dnia' }}.
+        </div>
+        <template v-else>
+          <div class="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-xs text-slate-300 flex justify-between">
+            <span><strong class="text-white">{{ copyPreview.entries.length }}</strong> {{ plural(copyPreview.entries.length, 'pozycja', 'pozycje', 'pozycji') }}</span>
+            <span class="text-emerald-400 font-bold">{{ copyPreview.netCarbs.toFixed(1) }} g W.Netto</span>
+            <span class="text-rose-400 font-bold">{{ copyPreview.kcal.toFixed(0) }} kcal</span>
+          </div>
+          <div v-for="entry in copyPreview.entries" :key="entry.entryId"
+               class="bg-slate-800/90 border border-slate-700/80 rounded-xl px-3 py-2 flex justify-between items-center gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="w-2 h-2 rounded-full shrink-0" :class="getEntryBadgeColor(entry)"></span>
+                <span class="font-semibold text-sm text-white break-words">{{ entry.food.name }}</span>
+              </div>
+              <span class="text-[11px] text-slate-400">
+                {{ getSlotName(entry.slotId).split(' / ')[0] }} · {{ formatEntryAmount(entry) }}
+              </span>
+            </div>
+            <span class="text-xs font-bold text-slate-300 shrink-0">{{ calcMacro(entry.food.kcal, entry.grams).toFixed(0) }} kcal</span>
+          </div>
+        </template>
+      </div>
+
+      <button @click="confirmCopyDay" :disabled="!copyPreview.entries.length"
+              class="w-full bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold py-3 rounded-xl text-sm shrink-0 active:scale-98 transition">
+        Skopiuj {{ copyPreview.entries.length || '' }} {{ plural(copyPreview.entries.length, 'pozycję', 'pozycje', 'pozycji') }}
+      </button>
+    </div>
+  </div>
+
+  <!-- POWIADOMIENIE O ZAPISIE -->
+  <div class="fixed left-0 right-0 flex justify-center px-4 z-50 pointer-events-none"
+       style="bottom: calc(4.75rem + env(safe-area-inset-bottom))">
+    <transition name="toast">
+      <div v-if="toast.show"
+           class="max-w-md px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg border backdrop-blur flex items-center gap-2"
+           :class="[toast.type === 'warn' ? 'bg-amber-950/95 border-amber-700 text-amber-200' : 'bg-emerald-950/95 border-emerald-700 text-emerald-200',
+                    toast.actionLabel ? 'pointer-events-auto' : '']">
+        <i class="text-base shrink-0" :class="toast.type === 'warn' ? 'ph-fill ph-warning' : 'ph-fill ph-check-circle'"></i>
+        <span>{{ toast.text }}</span>
+        <button v-if="toast.actionLabel" @click="runToastAction"
+                class="ml-1 shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-2.5 py-1 font-bold flex items-center gap-1">
+          <i class="ph-bold ph-arrow-counter-clockwise"></i> {{ toast.actionLabel }}
+        </button>
+      </div>
+    </transition>
   </div>
 
   <!-- DOLNY PASEK NAWIGACJI (Styl iOS Tab Bar) -->
@@ -1003,6 +1704,30 @@ const DEFAULT_FOODS = [
   { id: 'f23', name: 'Cukier biały / Miód', kcal: 399, fat: 0, carbs: 99.8, fiber: 0, protein: 0, tip: 'Natychmiast przerywa ketozę i blokuje spalanie tłuszczu.', substitute: 'Erytrytol (0 kcal, 0g W.Netto, IG=0) lub Ksylitol w małych ilościach' }
 ];
 
+// Poziomy restrykcyjności diety dla suwaka limitu węglowodanów netto
+const CARB_LEVELS = [
+  {
+    id: 'strict', name: 'Bardzo restrykcyjne keto', range: 'do 20 g', preset: 20, max: 20,
+    color: '#10b981', textClass: 'text-emerald-400',
+    desc: 'Najszybsze wejście w ketozę i mocne stężenie ketonów. Wymaga pilnowania każdego warzywa i orzecha – praktycznie bez owoców.'
+  },
+  {
+    id: 'typical', name: 'Typowe keto — dobry punkt startowy', range: '20–30 g', preset: 25, max: 30,
+    color: '#34d399', textClass: 'text-emerald-300',
+    desc: 'Najczęściej polecany zakres na start. Utrzymuje ketozę u większości osób, a jednocześnie zostawia miejsce na zielone warzywa, kiszonki i garść owoców jagodowych.'
+  },
+  {
+    id: 'mild', name: 'Łagodniejsze ograniczenie', range: '30–50 g', preset: 40, max: 50,
+    color: '#f59e0b', textClass: 'text-amber-400',
+    desc: 'Łatwiejsze do utrzymania na co dzień i przy treningach, ale ketoza bywa płytsza. Dobre, gdy wchodzisz w keto stopniowo lub dużo ćwiczysz.'
+  },
+  {
+    id: 'high', name: 'Powyżej 50 g', range: 'ketoza bywa trudniejsza', preset: 60, max: Infinity,
+    color: '#ef4444', textClass: 'text-red-400',
+    desc: 'Powyżej 50 g netto utrzymanie ketozy może być trudniejsze – organizm wielu osób wraca do spalania glukozy. To już raczej dieta niskowęglowodanowa niż klasyczne keto.'
+  }
+];
+
 // Kategorie gotowych posiłków (szablonów) zapisywanych przez użytkownika
 const MEAL_CATEGORIES = [
   { id: 'any', name: 'Dowolny', icon: '🍽️' },
@@ -1037,15 +1762,49 @@ createApp({
       goal: 'cut'
     });
 
-    // Cele makro (Domyślnie wyliczone pod Keto)
+    // Cele makro (Domyślnie wyliczone pod Keto) + nawodnienie i elektrolity
     const targets = reactive({
       netCarbs: 25,
       kcal: 2050,
       fat: 158,
-      protein: 132
+      protein: 132,
+      water: 3000,      // ml – ok. 35 ml na kg masy ciała
+      sodium: 4000,     // mg – na keto zapotrzebowanie rośnie (utrata wody i sodu)
+      potassium: 3500,  // mg
+      magnesium: 400    // mg
     });
 
-    const foods = ref([...DEFAULT_FOODS]);
+    // Elektrolity, których niedobór odpowiada za objawy "keto grypy"
+    const electrolytes = [
+      {
+        key: 'sodium', name: 'Sód', icon: '🧂', textClass: 'text-amber-300', barClass: 'bg-amber-400',
+        presets: [
+          { mg: 575, label: '¼ łyżeczki soli' },
+          { mg: 1150, label: '½ łyżeczki' },
+          { mg: 500, label: 'bulion / rosół' }
+        ]
+      },
+      {
+        key: 'potassium', name: 'Potas', icon: '🥑', textClass: 'text-emerald-300', barClass: 'bg-emerald-400',
+        presets: [
+          { mg: 500, label: 'awokado' },
+          { mg: 350, label: 'garść szpinaku' },
+          { mg: 1000, label: 'sól potasowa ¼ łyż.' }
+        ]
+      },
+      {
+        key: 'magnesium', name: 'Magnez', icon: '💊', textClass: 'text-violet-300', barClass: 'bg-violet-400',
+        presets: [
+          { mg: 100, label: 'orzechy / kakao' },
+          { mg: 200, label: 'tabletka' },
+          { mg: 400, label: 'pełna dawka' }
+        ]
+      }
+    ];
+
+    // Głęboka kopia: oznaczanie ulubionych i licznik użyć modyfikują produkty,
+    // a stała DEFAULT_FOODS musi zostać nietknięta.
+    const foods = ref(DEFAULT_FOODS.map(f => ({ ...f })));
 
     // Gotowe posiłki (szablony całych dań – np. pudełka z cateringu, keto sernik).
     // Makro trzymane ZA CAŁĄ PORCJĘ, nie na 100 g.
@@ -1054,7 +1813,31 @@ createApp({
 
     const diary = reactive({});        // { 'YYYY-MM-DD': [ { entryId, slotId, food, grams } ] }
     const weightHistory = reactive({}); // { 'YYYY-MM-DD': 86.0 }
-    const todayWeightInput = ref(null);
+    const hydration = reactive({});     // { 'YYYY-MM-DD': { water, sodium, potassium, magnesium } }
+    const showHydration = ref(false);
+    const todayWeightInput = ref('');
+
+    // Praca bez internetu (aplikacja i tak trzyma wszystko w localStorage)
+    const isOffline = ref(typeof navigator !== 'undefined' && navigator.onLine === false);
+    window.addEventListener('online', () => { isOffline.value = false; });
+    window.addEventListener('offline', () => { isOffline.value = true; });
+
+    // Krótkie potwierdzenia akcji (zapis wagi, posiłku itd.)
+    const toast = reactive({ show: false, text: '', type: 'ok', actionLabel: '', action: null });
+    let toastTimer = null;
+    const showToast = (text, type = 'ok', action = null) => {
+      toast.text = text;
+      toast.type = type;
+      toast.actionLabel = action ? action.label : '';
+      toast.action = action ? action.fn : null;
+      toast.show = true;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toast.show = false; }, action ? 6000 : 2800);
+    };
+    const runToastAction = () => {
+      if (toast.action) toast.action();
+      toast.show = false;
+    };
 
     // Wyszukiwarka i dodawanie produktów
     const dbView = ref('foods');       // 'foods' | 'meals'
@@ -1105,6 +1888,8 @@ createApp({
           if (Array.isArray(parsed.meals)) meals.value = parsed.meals;
           if (parsed.diary) Object.assign(diary, parsed.diary);
           if (parsed.weightHistory) Object.assign(weightHistory, parsed.weightHistory);
+          if (parsed.hydration) Object.assign(hydration, parsed.hydration);
+          if (parsed.fasting) Object.assign(fasting, parsed.fasting);
         } else {
           // Przykładowe dane historyczne na start, by wykresy i dziennik od razu żyły
           seedInitialDemoData();
@@ -1112,7 +1897,7 @@ createApp({
       } catch (e) {
         console.error('Błąd odczytu localStorage:', e);
       }
-      todayWeightInput.value = weightHistory[selectedDate.value] || profile.weight;
+      todayWeightInput.value = formatWeight(weightHistory[selectedDate.value] ?? profile.weight);
     };
 
     const saveAll = () => {
@@ -1122,7 +1907,9 @@ createApp({
         foods: foods.value,
         meals: meals.value,
         diary,
-        weightHistory
+        weightHistory,
+        hydration,
+        fasting
       };
       localStorage.setItem('keto_assistant_v1', JSON.stringify(payload));
     };
@@ -1253,20 +2040,69 @@ createApp({
       return { text: 'UNIKAJ NA KETO (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-red-950 text-red-300 border border-red-700' };
     };
 
+    /* ------------------------------------------------------------------ */
+    /* ULUBIONE I OSTATNIO UŻYWANE PRODUKTY                                 */
+    /* ------------------------------------------------------------------ */
+
+    // Produkt dopisany do dziennika awansuje w wyszukiwarce: baza rośnie,
+    // a i tak codziennie wraca ta sama garstka pozycji z pudełek.
+    const touchFood = (food) => {
+      const stored = foods.value.find(f => f.id === food.id);
+      if (!stored) return;
+      stored.usageCount = (stored.usageCount || 0) + 1;
+      stored.lastUsed = Date.now();
+    };
+
+    const toggleFoodFavorite = (food) => {
+      const stored = foods.value.find(f => f.id === food.id) || food;
+      stored.favorite = !stored.favorite;
+      saveAll();
+      showToast(stored.favorite ? `Dodano do ulubionych: ${stored.name}` : `Usunięto z ulubionych: ${stored.name}`);
+    };
+
+    // Ulubione na samej górze, dalej ostatnio używane, potem najczęstsze.
+    const byFavoriteAndRecency = (a, b) => {
+      const fav = (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+      if (fav) return fav;
+      const recent = (b.lastUsed || 0) - (a.lastUsed || 0);
+      if (recent) return recent;
+      const used = (b.usageCount || 0) - (a.usageCount || 0);
+      if (used) return used;
+      return a.name.localeCompare(b.name, 'pl');
+    };
+
+    const isRecentFood = (food) => !!food.lastUsed || !!food.favorite;
+
+    // Skróty nad listą w modalu – jeden klik zamiast przewijania całej bazy
+    const quickPickFoods = computed(() => {
+      return foods.value
+        .filter(isRecentFood)
+        .sort(byFavoriteAndRecency)
+        .slice(0, 8);
+    });
+
     // Filtrowanie bazy produktów
     const filteredFoods = computed(() => {
-      return foods.value.filter(f => {
+      const list = foods.value.filter(f => {
         const matchesSearch = f.name.toLowerCase().includes(foodSearchQuery.value.toLowerCase());
         const nc = getNetCarbs(f);
+        if (foodFilter.value === 'favorites') return matchesSearch && (f.favorite || f.lastUsed);
         if (foodFilter.value === 'keto') return matchesSearch && nc <= 6;
         if (foodFilter.value === 'moderate') return matchesSearch && nc > 6 && nc <= 18;
         if (foodFilter.value === 'avoid') return matchesSearch && nc > 18;
         return matchesSearch;
       });
+      if (foodFilter.value === 'favorites') return [...list].sort(byFavoriteAndRecency);
+      // W pozostałych widokach zachowujemy kolejność bazy, ulubione tylko wysuwamy na górę
+      return [...list].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
     });
 
+    const favoriteFoodsCount = computed(() => foods.value.filter(isRecentFood).length);
+
     const modalFilteredFoods = computed(() => {
-      return foods.value.filter(f => f.name.toLowerCase().includes(addModal.search.toLowerCase()));
+      const q = addModal.search.trim().toLowerCase();
+      const list = foods.value.filter(f => f.name.toLowerCase().includes(q));
+      return [...list].sort(byFavoriteAndRecency);
     });
 
     // Dodawanie / Usuwanie z dziennika
@@ -1295,8 +2131,11 @@ createApp({
         food: JSON.parse(JSON.stringify(food)),
         grams: addModal.grams || 100
       });
+      touchFood(food);
+      touchLastMeal();
       saveAll();
       addModal.open = false;
+      showToast(`Dodano: ${food.name} (${addModal.grams || 100} g)`);
     };
 
     const quickAddSuggestion = (food, portion) => {
@@ -1307,14 +2146,162 @@ createApp({
         food: JSON.parse(JSON.stringify(food)),
         grams: portion
       });
+      touchFood(food);
+      touchLastMeal();
       saveAll();
       activeTab.value = 'diary';
     };
 
-    const removeDiaryEntry = (entryId) => {
-      if (!diary[selectedDate.value]) return;
-      diary[selectedDate.value] = diary[selectedDate.value].filter(e => e.entryId !== entryId);
+    /* ------------------------------------------------------------------ */
+    /* KOPIOWANIE JADŁOSPISU Z INNEGO DNIA                                  */
+    /* ------------------------------------------------------------------ */
+
+    // Polska odmiana rzeczownika po liczbie (1 pozycja, 2 pozycje, 5 pozycji)
+    const plural = (count, one, few, many) => {
+      const n = Math.abs(count);
+      if (n === 1) return one;
+      const last = n % 10;
+      const lastTwo = n % 100;
+      if (last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14)) return few;
+      return many;
+    };
+
+    const copyModal = reactive({ open: false, scope: 'day', sourceDate: '' });
+
+    const shiftDate = (dateStr, days) => {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const copyQuickDates = computed(() => [
+      { label: 'Wczoraj', date: shiftDate(selectedDate.value, -1) },
+      { label: 'Przedwczoraj', date: shiftDate(selectedDate.value, -2) },
+      { label: 'Tydzień temu', date: shiftDate(selectedDate.value, -7) }
+    ]);
+
+    const openCopyModal = (scope) => {
+      copyModal.scope = scope;
+      copyModal.sourceDate = shiftDate(selectedDate.value, -1);
+      copyModal.open = true;
+    };
+
+    const copyPreview = computed(() => {
+      const source = (diary[copyModal.sourceDate] || [])
+        .filter(e => copyModal.scope === 'day' || e.slotId === copyModal.scope);
+      return source.reduce((acc, e) => {
+        acc.entries.push(e);
+        acc.kcal += (e.food.kcal * e.grams) / 100;
+        acc.netCarbs += (getNetCarbs(e.food) * e.grams) / 100;
+        return acc;
+      }, { entries: [], kcal: 0, netCarbs: 0 });
+    });
+
+    const confirmCopyDay = () => {
+      const source = copyPreview.value.entries;
+      if (!source.length) return;
+      if (!diary[selectedDate.value]) diary[selectedDate.value] = [];
+
+      source.forEach(entry => {
+        const copy = JSON.parse(JSON.stringify(entry));
+        copy.entryId = 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        // Kopiując pojedynczą porę dnia zawsze lądujemy w tej samej porze u celu
+        if (copyModal.scope !== 'day') copy.slotId = copyModal.scope;
+        diary[selectedDate.value].push(copy);
+      });
+
       saveAll();
+      copyModal.open = false;
+      const what = copyModal.scope === 'day'
+        ? 'jadłospis'
+        : getSlotName(copyModal.scope).split(' / ')[0].toLowerCase();
+      showToast(`Skopiowano ${what} z ${copyModal.sourceDate} (${source.length} poz.)`);
+    };
+
+    const removeDiaryEntry = (entryId) => {
+      const entries = diary[selectedDate.value];
+      if (!entries) return;
+      const index = entries.findIndex(e => e.entryId === entryId);
+      if (index === -1) return;
+
+      // Zapamiętujemy wpis i jego pozycję, żeby dało się cofnąć pomyłkę
+      const removed = JSON.parse(JSON.stringify(entries[index]));
+      const fromDate = selectedDate.value;
+      diary[fromDate] = entries.filter(e => e.entryId !== entryId);
+      saveAll();
+
+      showToast(`Usunięto: ${removed.food.name}`, 'ok', {
+        label: 'Cofnij',
+        fn: () => {
+          if (!diary[fromDate]) diary[fromDate] = [];
+          diary[fromDate].splice(Math.min(index, diary[fromDate].length), 0, removed);
+          saveAll();
+          showToast(`Przywrócono: ${removed.food.name}`);
+        }
+      });
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* EDYCJA ISTNIEJĄCEGO WPISU                                            */
+    /* ------------------------------------------------------------------ */
+
+    const editModal = reactive({
+      open: false, entryId: null, slotId: 'breakfast',
+      grams: 100, portions: 1, isMeal: false, food: { name: '' }
+    });
+
+    const openEditEntry = (entry) => {
+      editModal.entryId = entry.entryId;
+      editModal.slotId = entry.slotId;
+      editModal.isMeal = !!entry.isMeal;
+      editModal.grams = entry.isMeal ? 100 : entry.grams;
+      editModal.portions = entry.isMeal ? (entry.portions || entry.grams / 100) : 1;
+      editModal.food = entry.food;
+      editModal.open = true;
+    };
+
+    const editEffectiveGrams = computed(() => {
+      if (editModal.isMeal) {
+        const p = num(editModal.portions);
+        return (p > 0 ? p : 1) * 100;
+      }
+      const g = num(editModal.grams);
+      return g > 0 ? g : 0;
+    });
+
+    const editPreview = computed(() => {
+      const ratio = editEffectiveGrams.value / 100;
+      const f = editModal.food;
+      return {
+        netCarbs: +(getNetCarbs(f) * ratio).toFixed(1),
+        fat: +((f.fat || 0) * ratio).toFixed(1),
+        protein: +((f.protein || 0) * ratio).toFixed(1),
+        kcal: Math.round((f.kcal || 0) * ratio)
+      };
+    });
+
+    const saveEditEntry = () => {
+      const entries = diary[selectedDate.value] || [];
+      const entry = entries.find(e => e.entryId === editModal.entryId);
+      if (!entry) { editModal.open = false; return; }
+      if (editEffectiveGrams.value <= 0) {
+        showToast('Podaj ilość większą od zera', 'warn');
+        return;
+      }
+
+      entry.slotId = editModal.slotId;
+      entry.grams = editEffectiveGrams.value;
+      if (entry.isMeal) entry.portions = num(editModal.portions) > 0 ? num(editModal.portions) : 1;
+
+      saveAll();
+      editModal.open = false;
+      showToast(`Zaktualizowano: ${entry.food.name} (${formatEntryAmount(entry)})`);
+    };
+
+    const deleteFromEditModal = () => {
+      const id = editModal.entryId;
+      editModal.open = false;
+      removeDiaryEntry(id);
     };
 
     // Dodawanie własnego produktu
@@ -1472,7 +2459,9 @@ createApp({
         });
       }
       saveAll();
+      const wasEdit = !!mealForm.id;
       closeMealForm();
+      showToast(wasEdit ? `Zapisano zmiany w: ${data.name}` : `Posiłek zapisany: ${data.name}`);
     };
 
     const deleteMeal = (meal) => {
@@ -1524,8 +2513,10 @@ createApp({
         stored.lastUsed = Date.now();
       }
 
+      touchLastMeal();
       saveAll();
       addModal.open = false;
+      showToast(`Dodano: ${meal.name} (${portions}× porcja)`);
     };
 
     const openQuickAddMeal = (meal) => {
@@ -1608,6 +2599,186 @@ createApp({
       }
     };
 
+    /* ------------------------------------------------------------------ */
+    /* SKANER KODÓW KRESKOWYCH (EAN) + Open Food Facts                      */
+    /* ------------------------------------------------------------------ */
+
+    const scanModal = reactive({
+      open: false,
+      phase: 'idle',      // idle | starting | scanning | lookup | result | error
+      message: '',
+      code: '',
+      manualCode: '',
+      product: null
+    });
+
+    let mediaStream = null;
+    let zxingReader = null;
+    let detectLoop = null;
+
+    const loadScriptOnce = (src) => new Promise((resolve, reject) => {
+      if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
+      const el = document.createElement('script');
+      el.src = src;
+      el.dataset.src = src;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error('Nie udało się wczytać ' + src));
+      document.head.appendChild(el);
+    });
+
+    const stopScanner = () => {
+      clearInterval(detectLoop);
+      detectLoop = null;
+      if (zxingReader) {
+        try { zxingReader.reset(); } catch (e) { /* biblioteka mogła już posprzątać */ }
+        zxingReader = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      const video = document.getElementById('scanVideo');
+      if (video) video.srcObject = null;
+    };
+
+    const closeScanner = () => {
+      stopScanner();
+      scanModal.open = false;
+      scanModal.phase = 'idle';
+    };
+
+    const openScanner = async () => {
+      stopScanner();
+      scanModal.open = true;
+      scanModal.phase = 'starting';
+      scanModal.message = '';
+      scanModal.product = null;
+      scanModal.code = '';
+      await nextTick();
+
+      const video = document.getElementById('scanVideo');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Ta przeglądarka nie udostępnia kamery (kamera działa tylko przez HTTPS). Wpisz kod ręcznie poniżej.';
+        return;
+      }
+
+      try {
+        if ('BarcodeDetector' in window) {
+          // Natywny dekoder (Chrome na Androidzie) – najszybszy i najlżejszy
+          const detector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
+          });
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } }
+          });
+          video.srcObject = mediaStream;
+          await video.play();
+          scanModal.phase = 'scanning';
+          detectLoop = setInterval(async () => {
+            if (scanModal.phase !== 'scanning') return;
+            try {
+              const found = await detector.detect(video);
+              if (found && found.length) lookupBarcode(found[0].rawValue);
+            } catch (e) { /* pojedyncza nieudana klatka nic nie zmienia */ }
+          }, 350);
+        } else {
+          // Safari/iOS nie ma BarcodeDetector – dokładamy lokalny dekoder ZXing
+          await loadScriptOnce('./vendor/zxing.min.js');
+          zxingReader = new window.ZXing.BrowserMultiFormatReader();
+          scanModal.phase = 'scanning';
+          await zxingReader.decodeFromConstraints(
+            { video: { facingMode: { ideal: 'environment' } } },
+            video,
+            (result) => { if (result) lookupBarcode(result.getText()); }
+          );
+        }
+      } catch (err) {
+        stopScanner();
+        scanModal.phase = 'error';
+        scanModal.message = err && err.name === 'NotAllowedError'
+          ? 'Brak zgody na dostęp do kamery. Zezwól na kamerę w ustawieniach przeglądarki albo wpisz kod ręcznie.'
+          : 'Nie udało się uruchomić kamery (' + (err && err.message ? err.message : 'nieznany błąd') + '). Wpisz kod ręcznie poniżej.';
+      }
+    };
+
+    const lookupBarcode = async (rawCode) => {
+      const code = String(rawCode || '').replace(/\D/g, '');
+      if (code.length < 8) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Kod kreskowy ma zwykle 8 lub 13 cyfr. Sprawdź wpisaną wartość.';
+        return;
+      }
+
+      stopScanner();
+      scanModal.code = code;
+      scanModal.phase = 'lookup';
+      scanModal.product = null;
+
+      if (!navigator.onLine) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Brak internetu – bazy Open Food Facts nie da się teraz odpytać. Produkt możesz dodać ręcznie, a kod sprawdzić później.';
+        return;
+      }
+
+      try {
+        const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json`
+          + '?fields=product_name,product_name_pl,brands,quantity,nutriments';
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== 1 || !data.product) {
+          scanModal.phase = 'error';
+          scanModal.message = `Nie znaleziono produktu o kodzie ${code} w Open Food Facts. Dodaj go ręcznie – zajmie chwilę, a zostanie w Twojej bazie.`;
+          return;
+        }
+
+        const n = data.product.nutriments || {};
+        // W bazie OFF nazwy bywają puste albo wypełnione kropką – bierzemy pierwszą sensowną
+        const clean = (txt) => String(txt || '').trim().replace(/^[.\-–_]+$/, '');
+        const title = clean(data.product.product_name_pl) || clean(data.product.product_name);
+        const brand = clean((data.product.brands || '').split(',')[0]);
+        const name = [title, brand].filter(Boolean).join(' – ') || ('Produkt ' + code);
+
+        scanModal.product = {
+          id: 'scan_' + code,
+          name,
+          kcal: Math.round(n['energy-kcal_100g'] || 0),
+          fat: +(n.fat_100g || 0).toFixed(1),
+          carbs: +(n.carbohydrates_100g || 0).toFixed(1),
+          fiber: +(n.fiber_100g || 0).toFixed(1),
+          protein: +(n.proteins_100g || 0).toFixed(1),
+          tip: `Zeskanowano kod ${code}${data.product.quantity ? ' · opakowanie ' + data.product.quantity : ''}.`,
+          substitute: '',
+          barcode: code
+        };
+        scanModal.phase = 'result';
+      } catch (err) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Błąd połączenia z Open Food Facts. Spróbuj ponownie albo wpisz produkt ręcznie.';
+      }
+    };
+
+    const saveScannedProduct = (alsoAddToDiary) => {
+      const p = scanModal.product;
+      if (!p) return;
+
+      const existing = foods.value.find(f => f.barcode === p.barcode);
+      const food = existing || { ...p, id: 'scan_' + Date.now() };
+      if (!existing) foods.value.unshift(food);
+
+      saveAll();
+      scanModal.open = false;
+      stopScanner();
+
+      if (alsoAddToDiary) {
+        openQuickAddFromDb(food);
+        showToast(`${food.name} – wybierz porę dnia i gramaturę`);
+      } else {
+        showToast(existing ? `${food.name} jest już w bazie` : `Zapisano w bazie: ${food.name}`);
+      }
+    };
+
     const importFromOff = (item) => {
       const net = Math.max(0, item.carbs - item.fiber);
       foods.value.unshift({
@@ -1645,7 +2816,10 @@ createApp({
       targets.kcal = kcalTarget;
       targets.protein = proteinGrams;
       targets.fat = fatGrams;
+      // Ok. 35 ml wody na kilogram masy ciała, zaokrąglone do 50 ml
+      targets.water = Math.round((profile.weight * 35) / 50) * 50;
       saveAll();
+      showToast(`Nowe cele: ${kcalTarget} kcal, ${fatGrams} g tłuszczu, ${proteinGrams} g białka`);
     };
 
     // Inteligentne sugestie doradcy Keto ("Co jeszcze zmieścić w limicie?")
@@ -1700,6 +2874,247 @@ createApp({
       return suggestions.slice(0, 4);
     });
 
+    /* ------------------------------------------------------------------ */
+    /* POST PRZERYWANY (IF) – licznik od ostatniego posiłku                 */
+    /* ------------------------------------------------------------------ */
+
+    const fasting = reactive({ lastMealAt: null, protocol: 16 });
+    const now = ref(Date.now());
+    const fastingProtocols = [
+      { hours: 12, label: '12:12' },
+      { hours: 14, label: '14:10' },
+      { hours: 16, label: '16:8' },
+      { hours: 18, label: '18:6' },
+      { hours: 20, label: '20:4' },
+      { hours: 23, label: 'OMAD' }
+    ];
+
+    const formatDuration = (ms) => {
+      const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      return h > 0 ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+    };
+
+    const formatClock = (timestamp) => {
+      const d = new Date(timestamp);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+
+    const fastingTimeInput = computed(() =>
+      fasting.lastMealAt ? formatClock(fasting.lastMealAt) : formatClock(Date.now())
+    );
+
+    const fastingState = computed(() => {
+      const targetMs = fasting.protocol * 3600000;
+
+      if (!fasting.lastMealAt) {
+        return {
+          progress: 0, color: '#475569', bigValue: '–', bigLabel: 'brak danych',
+          title: 'Licznik nie jest uruchomiony',
+          subtitle: `Protokół ${fasting.protocol}:${24 - fasting.protocol}`,
+          lastMealLabel: 'nie zapisano',
+          borderClass: 'border-slate-700', iconClass: 'text-slate-400', textClass: 'text-slate-200',
+          adviceClass: 'bg-slate-900/70 border-slate-700 text-slate-300',
+          advice: 'Kliknij „Jem teraz” po ostatnim posiłku dnia albo ustaw godzinę ręcznie – od tego momentu aplikacja liczy post.'
+        };
+      }
+
+      const elapsed = Math.max(0, now.value - fasting.lastMealAt);
+      const progress = Math.min(1, elapsed / targetMs);
+      const windowOpensAt = fasting.lastMealAt + targetMs;
+      const lastMealDate = new Date(fasting.lastMealAt);
+      const isToday = lastMealDate.toDateString() === new Date(now.value).toDateString();
+      const lastMealLabel = `${isToday ? 'dziś' : lastMealDate.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })} ${formatClock(fasting.lastMealAt)}`;
+
+      if (elapsed >= targetMs) {
+        return {
+          progress: 1, color: '#10b981',
+          bigValue: formatDuration(elapsed).replace(' min', ''), bigLabel: 'postu',
+          title: 'Okno żywieniowe otwarte',
+          subtitle: `Cel ${fasting.protocol} h osiągnięty o ${formatClock(windowOpensAt)}`,
+          lastMealLabel,
+          borderClass: 'border-emerald-600/60', iconClass: 'text-emerald-400', textClass: 'text-emerald-400',
+          adviceClass: 'bg-emerald-950/50 border-emerald-800/60 text-emerald-200',
+          advice: 'Post zaliczony. Pierwszy posiłek oprzyj na białku i tłuszczu – przy wyjściu z postu łatwo przesadzić z ilością, a glukoza i tak skacze mocniej niż zwykle.'
+        };
+      }
+
+      const remaining = targetMs - elapsed;
+      const closeToEnd = remaining <= 3600000;
+      return {
+        progress,
+        color: closeToEnd ? '#f59e0b' : '#38bdf8',
+        bigValue: formatDuration(elapsed).replace(' min', ''), bigLabel: 'postu',
+        title: `Post trwa ${formatDuration(elapsed)}`,
+        subtitle: `Okno otwiera się o ${formatClock(windowOpensAt)} (za ${formatDuration(remaining)})`,
+        lastMealLabel,
+        borderClass: closeToEnd ? 'border-amber-600/60' : 'border-sky-700/60',
+        iconClass: closeToEnd ? 'text-amber-400' : 'text-sky-400',
+        textClass: closeToEnd ? 'text-amber-400' : 'text-sky-300',
+        adviceClass: 'bg-sky-950/50 border-sky-800/60 text-sky-200',
+        advice: elapsed < 4 * 3600000
+          ? 'Trawienie jeszcze trwa. Jeśli czujesz głód, sięgnij po wodę z solą albo czarną kawę – nie przerywają postu.'
+          : 'Jesteś w fazie spalania tłuszczu. Pij wodę i pilnuj elektrolitów, bo to one, a nie głód, najczęściej psują dłuższy post.'
+      };
+    });
+
+    // Dopisanie czegoś do dzisiejszego dziennika przesuwa start postu.
+    // Wpisy dla innych dat zostawiają licznik w spokoju.
+    const touchLastMeal = () => {
+      if (selectedDate.value !== new Date().toISOString().slice(0, 10)) return;
+      fasting.lastMealAt = Date.now();
+      now.value = Date.now();
+    };
+
+    const setFastingProtocol = (hours) => {
+      fasting.protocol = hours;
+      saveAll();
+    };
+
+    const markMealNow = () => {
+      fasting.lastMealAt = Date.now();
+      now.value = Date.now();
+      saveAll();
+      showToast(`Zapisano ostatni posiłek o ${formatClock(fasting.lastMealAt)}`);
+    };
+
+    const setLastMealTime = (value) => {
+      if (!value) return;
+      const [h, m] = value.split(':').map(Number);
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      // Godzina z przyszłości oznacza wczorajszą kolację
+      if (d.getTime() > Date.now()) d.setDate(d.getDate() - 1);
+      fasting.lastMealAt = d.getTime();
+      now.value = Date.now();
+      saveAll();
+      showToast(`Ostatni posiłek: ${formatClock(fasting.lastMealAt)}`);
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* NAWODNIENIE I ELEKTROLITY                                            */
+    /* ------------------------------------------------------------------ */
+
+    const emptyHydration = () => ({ water: 0, sodium: 0, potassium: 0, magnesium: 0 });
+
+    const todayHydration = computed(() => hydration[selectedDate.value] || emptyHydration());
+
+    const hydrationPercent = (key) => {
+      const target = targets[key] || 1;
+      return Math.min(100, Math.round((todayHydration.value[key] / target) * 100));
+    };
+
+    const addHydration = (key, amount) => {
+      if (!hydration[selectedDate.value]) hydration[selectedDate.value] = emptyHydration();
+      const day = hydration[selectedDate.value];
+      const before = day[key];
+      day[key] = Math.max(0, before + amount);
+      saveAll();
+      if (before < targets[key] && day[key] >= targets[key]) {
+        const label = key === 'water' ? 'nawodnienia' : (electrolytes.find(e => e.key === key) || {}).name.toLowerCase();
+        showToast(`Dzienny cel ${label} osiągnięty`);
+      }
+    };
+
+    const hydrationAdvice = computed(() => {
+      const h = todayHydration.value;
+      const lowWater = h.water < targets.water * 0.6;
+      const lowSodium = h.sodium < targets.sodium * 0.5;
+      const lowMagnesium = h.magnesium < targets.magnesium * 0.5;
+
+      if (lowSodium && lowWater) {
+        return {
+          class: 'bg-amber-950/50 border-amber-800/60 text-amber-200',
+          text: 'Pijesz mało i masz niski sód – to najczęstsza przyczyna osłabienia, bólu głowy i skurczów na początku keto. Dosól posiłki lub wypij szklankę bulionu.'
+        };
+      }
+      if (lowSodium) {
+        return {
+          class: 'bg-amber-950/50 border-amber-800/60 text-amber-200',
+          text: 'Na keto organizm wydala więcej sodu niż zwykle. Przy takim niedoborze łatwo o zmęczenie i zawroty głowy – dosól jedzenie albo sięgnij po bulion.'
+        };
+      }
+      if (lowWater) {
+        return {
+          class: 'bg-sky-950/50 border-sky-800/60 text-sky-200',
+          text: `Zostało Ci jeszcze ${Math.max(0, targets.water - h.water)} ml wody do dziennego celu. Ketoza odwadnia – pij regularnie, nie tylko do posiłków.`
+        };
+      }
+      if (lowMagnesium) {
+        return {
+          class: 'bg-violet-950/50 border-violet-800/60 text-violet-200',
+          text: 'Nawodnienie i sód wyglądają dobrze. Zostaje magnez – jego niedobór objawia się nocnymi skurczami łydek i gorszym snem.'
+        };
+      }
+      return {
+        class: 'bg-emerald-950/50 border-emerald-800/60 text-emerald-200',
+        text: 'Nawodnienie i elektrolity na dobrym poziomie. Tak wygląda dzień bez objawów keto grypy.'
+      };
+    });
+
+    /* ------------------------------------------------------------------ */
+    /* SUWAK LIMITU WĘGLOWODANÓW NETTO                                      */
+    /* ------------------------------------------------------------------ */
+
+    const CARB_MIN = 10;
+    const CARB_MAX = 80;
+    const carbLevels = CARB_LEVELS;
+
+    const carbPercentOf = (value) =>
+      ((Math.min(CARB_MAX, Math.max(CARB_MIN, value)) - CARB_MIN) / (CARB_MAX - CARB_MIN)) * 100;
+
+    const carbSliderPercent = computed(() => carbPercentOf(targets.netCarbs).toFixed(1));
+
+    const carbLevel = computed(() =>
+      carbLevels.find(l => targets.netCarbs <= l.max) || carbLevels[carbLevels.length - 1]
+    );
+
+    const setCarbTarget = (value) => {
+      targets.netCarbs = value;
+      saveAll();
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* WAGA                                                                 */
+    /* ------------------------------------------------------------------ */
+
+    // Akceptuje zarówno "84.5", jak i "84,5" – polska klawiatura podaje przecinek,
+    // a pole number potrafiło go po cichu zjeść (robiąc z 83,7 wartość 837).
+    const parseDecimal = (value) => {
+      if (value === null || value === undefined) return NaN;
+      const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.');
+      if (!normalized || !/^-?\d*\.?\d+$/.test(normalized)) return NaN;
+      return Number(normalized);
+    };
+
+    const formatWeight = (value) => {
+      if (!Number.isFinite(Number(value))) return '';
+      return String(Math.round(Number(value) * 10) / 10).replace('.', ',');
+    };
+
+    const previousWeightBefore = (dateKey) => {
+      const earlier = Object.keys(weightHistory).filter(d => d < dateKey).sort();
+      return earlier.length ? weightHistory[earlier[earlier.length - 1]] : null;
+    };
+
+    const weightSummary = computed(() => {
+      const dates = Object.keys(weightHistory).sort();
+      if (!dates.length) return '';
+      const first = weightHistory[dates[0]];
+      const lastDate = dates[dates.length - 1];
+      const last = weightHistory[lastDate];
+      const parts = [`Ostatni pomiar ${lastDate}: ${formatWeight(last)} kg`];
+      if (dates.length > 1) {
+        const diff = +(last - first).toFixed(1);
+        const dir = diff < 0 ? '−' : '+';
+        parts.push(diff === 0
+          ? 'Bez zmian od pierwszego pomiaru'
+          : `${dir}${formatWeight(Math.abs(diff))} kg od ${dates[0]}`);
+      }
+      return parts.join(' · ');
+    });
+
     // Nawigacja datami i zapis wagi
     const changeDate = (days) => {
       const d = new Date(selectedDate.value);
@@ -1708,14 +3123,38 @@ createApp({
     };
 
     watch(selectedDate, (newDate) => {
-      todayWeightInput.value = weightHistory[newDate] || profile.weight;
+      todayWeightInput.value = formatWeight(weightHistory[newDate] ?? profile.weight);
     });
 
     const saveDailyWeight = () => {
-      if (!todayWeightInput.value) return;
-      weightHistory[selectedDate.value] = Number(todayWeightInput.value);
-      profile.weight = Number(todayWeightInput.value);
+      const kg = parseDecimal(todayWeightInput.value);
+      if (!Number.isFinite(kg)) {
+        showToast('Wpisz wagę, np. 84,5', 'warn');
+        return;
+      }
+      if (kg < 30 || kg > 300) {
+        showToast('Waga musi mieścić się w zakresie 30–300 kg', 'warn');
+        return;
+      }
+
+      const rounded = Math.round(kg * 10) / 10;
+      const previous = previousWeightBefore(selectedDate.value);
+      weightHistory[selectedDate.value] = rounded;
+
+      // Waga w profilu (używana do przeliczania celów) to zawsze najświeższy pomiar
+      const latestDate = Object.keys(weightHistory).sort().pop();
+      if (selectedDate.value >= latestDate) profile.weight = rounded;
+
+      todayWeightInput.value = formatWeight(rounded);
       saveAll();
+      if (activeTab.value === 'charts') nextTick(renderCharts);
+
+      const diff = previous === null ? null : +(rounded - previous).toFixed(1);
+      if (diff === null || diff === 0) {
+        showToast(`Zapisano wagę ${formatWeight(rounded)} kg`);
+      } else {
+        showToast(`Zapisano ${formatWeight(rounded)} kg (${diff > 0 ? '+' : '−'}${formatWeight(Math.abs(diff))} kg od poprzedniego pomiaru)`);
+      }
     };
 
     // Eksport / Import JSON
@@ -1744,6 +3183,146 @@ createApp({
         }
       };
       reader.readAsText(file);
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* PODSUMOWANIE TYGODNIA                                                */
+    /* ------------------------------------------------------------------ */
+
+    const weekDays = computed(() => {
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(selectedDate.value);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const entries = diary[key] || [];
+        const totals = entries.reduce((acc, e) => {
+          const ratio = e.grams / 100;
+          acc.kcal += e.food.kcal * ratio;
+          acc.fat += e.food.fat * ratio;
+          acc.protein += e.food.protein * ratio;
+          acc.netCarbs += getNetCarbs(e.food) * ratio;
+          return acc;
+        }, { kcal: 0, fat: 0, protein: 0, netCarbs: 0 });
+        days.push({ key, logged: entries.length > 0, ...totals });
+      }
+      return days;
+    });
+
+    const weeklySummary = computed(() => {
+      const days = weekDays.value;
+      const logged = days.filter(d => d.logged);
+      const startKey = days[0].key;
+      const endKey = days[days.length - 1].key;
+
+      const avg = (pick) => (logged.length ? logged.reduce((s, d) => s + pick(d), 0) / logged.length : 0);
+      const avgNetCarbs = avg(d => d.netCarbs);
+      const avgKcal = avg(d => d.kcal);
+      const avgFat = avg(d => d.fat);
+      const avgProtein = avg(d => d.protein);
+      const daysInLimit = logged.filter(d => d.netCarbs <= targets.netCarbs).length;
+      const bestDay = logged.length ? logged.reduce((a, b) => (b.netCarbs < a.netCarbs ? b : a)) : null;
+      const worstDay = logged.length ? logged.reduce((a, b) => (b.netCarbs > a.netCarbs ? b : a)) : null;
+
+      // Trend wagi: porównujemy ostatni pomiar z tygodnia z najwcześniejszym
+      // punktem odniesienia (pomiar z tygodnia lub ostatni sprzed okresu).
+      const measuredKeys = Object.keys(weightHistory).filter(k => k <= endKey).sort();
+      const inWindow = measuredKeys.filter(k => k >= startKey);
+      let weight = null;
+      if (inWindow.length) {
+        const toKey = inWindow[inWindow.length - 1];
+        const earlier = measuredKeys.filter(k => k < startKey).pop();
+        const fromKey = inWindow.length > 1 ? inWindow[0] : earlier;
+        if (fromKey) {
+          weight = {
+            from: weightHistory[fromKey],
+            to: weightHistory[toKey],
+            fromDate: fromKey,
+            toDate: toKey,
+            delta: +(weightHistory[toKey] - weightHistory[fromKey]).toFixed(1),
+            count: inWindow.length
+          };
+        }
+      }
+
+      const kcalDiff = Math.round(avgKcal - targets.kcal);
+
+      // Werdykt łączący dyscyplinę węglowodanową z bilansem kalorii i wagą
+      let verdict;
+      if (!logged.length) {
+        verdict = {
+          tone: 'slate',
+          title: 'Brak danych z tego tygodnia',
+          text: 'Zacznij zapisywać posiłki, a tutaj pojawi się średnia węglowodanów, liczba dni w limicie i powiązanie kalorii z trendem wagi.'
+        };
+      } else if (!weight) {
+        verdict = {
+          tone: avgNetCarbs <= targets.netCarbs ? 'emerald' : 'amber',
+          title: avgNetCarbs <= targets.netCarbs ? 'Węglowodany pod kontrolą' : 'Średnia powyżej limitu',
+          text: avgNetCarbs <= targets.netCarbs
+            ? `Średnio ${avgNetCarbs.toFixed(1)} g węglowodanów netto dziennie, czyli w granicach celu ${targets.netCarbs} g. Dodaj pomiary wagi, żeby zobaczyć, jak dieta przekłada się na masę ciała.`
+            : `Średnio ${avgNetCarbs.toFixed(1)} g węglowodanów netto dziennie przy celu ${targets.netCarbs} g. Dodaj pomiary wagi, żeby zobaczyć pełny obraz.`
+        };
+      } else if (weight.delta <= -0.2 && kcalDiff <= 0) {
+        verdict = {
+          tone: 'emerald',
+          title: 'Deficyt działa zgodnie z planem',
+          text: `Waga spadła o ${Math.abs(weight.delta).toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie (${kcalDiff} kcal względem celu). Trzymaj obecny rytm.`
+        };
+      } else if (weight.delta <= -0.2) {
+        verdict = {
+          tone: 'emerald',
+          title: 'Waga spada mimo wyższych kalorii',
+          text: `Waga spadła o ${Math.abs(weight.delta).toFixed(1)} kg, choć jesz średnio o ${kcalDiff} kcal więcej niż zakłada cel. Twoje zapotrzebowanie jest prawdopodobnie wyższe niż wyliczone – obserwuj kolejny tydzień przed zmianą celu.`
+        };
+      } else if (weight.delta >= 0.2 && kcalDiff > 0) {
+        verdict = {
+          tone: 'red',
+          title: 'Nadwyżka kalorii zaczyna być widoczna',
+          text: `Waga wzrosła o ${weight.delta.toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie, czyli o ${kcalDiff} kcal powyżej celu. Zmniejsz porcje tłuszczu – to on najmocniej podbija kaloryczność na keto.`
+        };
+      } else if (weight.delta >= 0.2) {
+        verdict = {
+          tone: 'amber',
+          title: 'Waga w górę mimo kalorii w celu',
+          text: `Waga wzrosła o ${weight.delta.toFixed(1)} kg, choć średnie ${Math.round(avgKcal)} kcal mieści się w celu. Najczęstsze przyczyny to zatrzymana woda, sól i niedoszacowane gramatury – zważ porcje przez kilka dni.`
+        };
+      } else {
+        verdict = {
+          tone: 'sky',
+          title: 'Waga stabilna',
+          text: `Waga zmieniła się o ${Math.abs(weight.delta).toFixed(1)} kg przy średnio ${Math.round(avgKcal)} kcal dziennie. Jeśli celem jest redukcja, zejdź o 150–250 kcal; jeśli utrzymanie – nic nie zmieniaj.`
+        };
+      }
+
+      return {
+        days,
+        daysLogged: logged.length,
+        daysInLimit,
+        avgNetCarbs,
+        avgKcal,
+        avgFat,
+        avgProtein,
+        kcalDiff,
+        bestDay,
+        worstDay,
+        weight,
+        verdict,
+        limitRatio: logged.length ? daysInLimit / logged.length : 0
+      };
+    });
+
+    const verdictClasses = {
+      emerald: 'bg-emerald-950/60 border-emerald-700/70 text-emerald-200',
+      amber: 'bg-amber-950/60 border-amber-700/70 text-amber-200',
+      red: 'bg-red-950/60 border-red-700/70 text-red-200',
+      sky: 'bg-sky-950/60 border-sky-700/70 text-sky-200',
+      slate: 'bg-slate-800/60 border-slate-700 text-slate-300'
+    };
+
+    const formatDayLabel = (key) => {
+      const d = new Date(key + 'T00:00:00');
+      return d.toLocaleDateString('pl-PL', { weekday: 'short', day: 'numeric', month: 'numeric' });
     };
 
     // Renderowanie wykresów (Chart.js)
@@ -1851,13 +3430,18 @@ createApp({
 
     onMounted(() => {
       loadFromStorage();
+      setInterval(() => { now.value = Date.now(); }, 30000);
     });
 
     return {
       activeTab, switchTab, selectedDate, changeDate,
       mealSlots, profile, targets, foods,
-      todayWeightInput, saveDailyWeight,
-      dbView, foodSearchQuery, foodFilter, filteredFoods,
+      todayWeightInput, saveDailyWeight, weightSummary, toast, isOffline,
+      electrolytes, showHydration, todayHydration, hydrationPercent, addHydration, hydrationAdvice,
+      fasting, fastingProtocols, fastingState, fastingTimeInput, setFastingProtocol, markMealNow, setLastMealTime,
+      carbLevels, carbLevel, carbSliderPercent, carbPercentOf, setCarbTarget,
+      dbView, foodSearchQuery, foodFilter, filteredFoods, favoriteFoodsCount,
+      toggleFoodFavorite, quickPickFoods,
       showCustomFoodForm, newFood, addCustomFood,
       meals, mealCategories, mealSearchQuery, mealCategoryFilter, mealSort, filteredMeals, modalFilteredMeals,
       showMealForm, mealForm, mealFormNetCarbs, estimatedMealKcal, autoCalcMealKcal,
@@ -1865,16 +3449,28 @@ createApp({
       getMealNetCarbs, getMealCategory, getMealBadgeColor, getMealLabelStyle,
       confirmAddMeal, openQuickAddMeal, saveSlotAsMeal, formatEntryAmount, getEntryBadgeColor, safePortions,
       showOffSearch, offQuery, offLoading, offError, offResults, searchOpenFoodFacts, importFromOff,
+      scanModal, openScanner, closeScanner, lookupBarcode, saveScannedProduct,
       addModal, openAddModal, openQuickAddFromDb, modalFilteredFoods, confirmAddFood,
       getNetCarbs, calcMacro, calcEntryNetCarbs,
       getSlotEntries, getSlotTotals, getSlotName, removeDiaryEntry,
+      copyModal, copyQuickDates, copyPreview, openCopyModal, confirmCopyDay, plural,
+      editModal, openEditEntry, editPreview, saveEditEntry, deleteFromEditModal, runToastAction,
       dailyTotals, remainingMacro, netCarbsStatus,
+      weeklySummary, verdictClasses, formatDayLabel,
       getKetoBadgeColor, getKetoLabelStyle,
       recalculateKetoTargets, dailyAdviceSummary, smartFoodSuggestions, quickAddSuggestion,
       saveAll, exportData, importData
     };
   }
 }).mount('#app');
+
+// Rejestracja service workera – bez niego aplikacja nie wstanie bez internetu.
+// Działa tylko po HTTPS (lub na localhost), więc błąd nie jest krytyczny.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('Service worker:', err));
+  });
+}
 </script>
 </body>
 </html>

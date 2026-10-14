@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#132032"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="flesh" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#a7f3d0"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="8" y="8" width="496" height="496" rx="106" fill="none" stroke="#10b981" stroke-opacity="0.35" stroke-width="10"/>
+
+  <!-- Awokado: skórka, mi|sz, pestka -->
+  <path d="M256 92c-62 0-112 46-112 112 0 34-30 52-30 102 0 63 62 114 142 114s142-51 142-114c0-50-30-68-30-102 0-66-50-112-112-112z"
+        fill="#065f46" stroke="#10b981" stroke-width="12"/>
+  <path d="M256 150c-42 0-76 32-76 78 0 28-24 40-24 76 0 44 46 78 100 78s100-34 100-78c0-36-24-48-24-76 0-46-34-78-76-78z"
+        fill="url(#flesh)"/>
+  <ellipse cx="256" cy="312" rx="56" ry="60" fill="#78350f"/>
+  <ellipse cx="240" cy="296" rx="18" ry="20" fill="#92400e" opacity="0.75"/>
+</svg>
