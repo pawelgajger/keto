@@ -313,8 +313,12 @@
                   💡 Zamiennik keto: <strong>{{ entry.food.substitute }}</strong>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center gap-1.5 shrink-0">
                 <span class="text-xs font-bold text-slate-300">{{ calcMacro(entry.food.kcal, entry.grams).toFixed(0) }} kcal</span>
+                <button @click="openEditEntry(entry)" title="Zmień ilość lub porę dnia"
+                        class="text-slate-500 hover:text-emerald-400 p-1">
+                  <i class="ph-bold ph-pencil-simple"></i>
+                </button>
                 <button @click="removeDiaryEntry(entry.entryId)" class="text-slate-500 hover:text-red-400 p-1">
                   <i class="ph-bold ph-trash"></i>
                 </button>
@@ -1059,6 +1063,91 @@
     </div>
   </div>
 
+  <!-- MODAL EDYCJI WPISU W DZIENNIKU -->
+  <div v-if="editModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white min-w-0">Edytuj wpis</h3>
+        <button @click="editModal.open = false" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 shrink-0">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="editModal.isMeal ? getMealBadgeColor(editModal.food) : getKetoBadgeColor(editModal.food)"></span>
+          <span class="font-bold text-sm text-white break-words">{{ editModal.food.name }}</span>
+          <span v-if="editModal.isMeal" class="text-[10px] font-bold text-sky-300 bg-sky-950 border border-sky-800 px-1.5 py-0.5 rounded">POSIŁEK</span>
+        </div>
+      </div>
+
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-3 pr-1 -mr-1">
+        <!-- Pora dnia -->
+        <div>
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Pora dnia</span>
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            <button v-for="s in mealSlots" :key="s.id" @click="editModal.slotId = s.id"
+                    :class="editModal.slotId === s.id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-bold shrink-0 whitespace-nowrap">
+              {{ s.icon }} {{ s.name }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Ilość: gramy albo porcje -->
+        <div v-if="!editModal.isMeal">
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Ilość (gramy)</span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button v-for="g in [30, 50, 100, 150, 200]" :key="g" @click="editModal.grams = g"
+                    :class="editModal.grams === g ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded text-xs font-bold">{{ g }}g</button>
+            <input type="number" v-model.number="editModal.grams"
+                   class="w-20 bg-slate-950 border border-emerald-500/60 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-emerald-300">
+          </div>
+        </div>
+        <div v-else>
+          <span class="text-xs font-semibold text-slate-300 block mb-1.5">Liczba porcji</span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button v-for="pp in [0.5, 1, 1.5, 2]" :key="pp" @click="editModal.portions = pp"
+                    :class="editModal.portions === pp ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'"
+                    class="px-2.5 py-1.5 rounded text-xs font-bold">{{ pp }}×</button>
+            <input type="number" step="0.5" min="0.1" v-model.number="editModal.portions"
+                   class="w-20 bg-slate-950 border border-sky-500/60 rounded-lg px-2 py-1.5 text-center text-sm font-bold text-sky-300">
+          </div>
+        </div>
+
+        <!-- Podgląd makro po zmianie -->
+        <div class="grid grid-cols-4 gap-1 text-center text-[11px]">
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">W.Netto</span>
+            <strong class="text-emerald-400 text-xs">{{ editPreview.netCarbs }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Tłuszcz</span>
+            <strong class="text-amber-400">{{ editPreview.fat }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Białko</span>
+            <strong class="text-sky-400">{{ editPreview.protein }}g</strong>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700/70 rounded-lg p-2">
+            <span class="text-slate-400 block">Kalorie</span>
+            <strong class="text-rose-400">{{ editPreview.kcal }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 shrink-0">
+        <button @click="deleteFromEditModal"
+                class="bg-slate-800 hover:bg-red-600 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-white rounded-xl px-4 py-3 text-sm font-bold">
+          <i class="ph-bold ph-trash"></i>
+        </button>
+        <button @click="saveEditEntry"
+                class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm active:scale-98 transition">
+          Zapisz zmiany
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL KOPIOWANIA JADŁOSPISU Z INNEGO DNIA -->
   <div v-if="copyModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
@@ -1127,9 +1216,14 @@
     <transition name="toast">
       <div v-if="toast.show"
            class="max-w-md px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg border backdrop-blur flex items-center gap-2"
-           :class="toast.type === 'warn' ? 'bg-amber-950/95 border-amber-700 text-amber-200' : 'bg-emerald-950/95 border-emerald-700 text-emerald-200'">
-        <i class="text-base" :class="toast.type === 'warn' ? 'ph-fill ph-warning' : 'ph-fill ph-check-circle'"></i>
+           :class="[toast.type === 'warn' ? 'bg-amber-950/95 border-amber-700 text-amber-200' : 'bg-emerald-950/95 border-emerald-700 text-emerald-200',
+                    toast.actionLabel ? 'pointer-events-auto' : '']">
+        <i class="text-base shrink-0" :class="toast.type === 'warn' ? 'ph-fill ph-warning' : 'ph-fill ph-check-circle'"></i>
         <span>{{ toast.text }}</span>
+        <button v-if="toast.actionLabel" @click="runToastAction"
+                class="ml-1 shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-2.5 py-1 font-bold flex items-center gap-1">
+          <i class="ph-bold ph-arrow-counter-clockwise"></i> {{ toast.actionLabel }}
+        </button>
       </div>
     </transition>
   </div>
@@ -1280,14 +1374,20 @@ createApp({
     window.addEventListener('offline', () => { isOffline.value = true; });
 
     // Krótkie potwierdzenia akcji (zapis wagi, posiłku itd.)
-    const toast = reactive({ show: false, text: '', type: 'ok' });
+    const toast = reactive({ show: false, text: '', type: 'ok', actionLabel: '', action: null });
     let toastTimer = null;
-    const showToast = (text, type = 'ok') => {
+    const showToast = (text, type = 'ok', action = null) => {
       toast.text = text;
       toast.type = type;
+      toast.actionLabel = action ? action.label : '';
+      toast.action = action ? action.fn : null;
       toast.show = true;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toast.show = false; }, 2800);
+      toastTimer = setTimeout(() => { toast.show = false; }, action ? 6000 : 2800);
+    };
+    const runToastAction = () => {
+      if (toast.action) toast.action();
+      toast.show = false;
     };
 
     // Wyszukiwarka i dodawanie produktów
@@ -1613,9 +1713,89 @@ createApp({
     };
 
     const removeDiaryEntry = (entryId) => {
-      if (!diary[selectedDate.value]) return;
-      diary[selectedDate.value] = diary[selectedDate.value].filter(e => e.entryId !== entryId);
+      const entries = diary[selectedDate.value];
+      if (!entries) return;
+      const index = entries.findIndex(e => e.entryId === entryId);
+      if (index === -1) return;
+
+      // Zapamiętujemy wpis i jego pozycję, żeby dało się cofnąć pomyłkę
+      const removed = JSON.parse(JSON.stringify(entries[index]));
+      const fromDate = selectedDate.value;
+      diary[fromDate] = entries.filter(e => e.entryId !== entryId);
       saveAll();
+
+      showToast(`Usunięto: ${removed.food.name}`, 'ok', {
+        label: 'Cofnij',
+        fn: () => {
+          if (!diary[fromDate]) diary[fromDate] = [];
+          diary[fromDate].splice(Math.min(index, diary[fromDate].length), 0, removed);
+          saveAll();
+          showToast(`Przywrócono: ${removed.food.name}`);
+        }
+      });
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* EDYCJA ISTNIEJĄCEGO WPISU                                            */
+    /* ------------------------------------------------------------------ */
+
+    const editModal = reactive({
+      open: false, entryId: null, slotId: 'breakfast',
+      grams: 100, portions: 1, isMeal: false, food: { name: '' }
+    });
+
+    const openEditEntry = (entry) => {
+      editModal.entryId = entry.entryId;
+      editModal.slotId = entry.slotId;
+      editModal.isMeal = !!entry.isMeal;
+      editModal.grams = entry.isMeal ? 100 : entry.grams;
+      editModal.portions = entry.isMeal ? (entry.portions || entry.grams / 100) : 1;
+      editModal.food = entry.food;
+      editModal.open = true;
+    };
+
+    const editEffectiveGrams = computed(() => {
+      if (editModal.isMeal) {
+        const p = num(editModal.portions);
+        return (p > 0 ? p : 1) * 100;
+      }
+      const g = num(editModal.grams);
+      return g > 0 ? g : 0;
+    });
+
+    const editPreview = computed(() => {
+      const ratio = editEffectiveGrams.value / 100;
+      const f = editModal.food;
+      return {
+        netCarbs: +(getNetCarbs(f) * ratio).toFixed(1),
+        fat: +((f.fat || 0) * ratio).toFixed(1),
+        protein: +((f.protein || 0) * ratio).toFixed(1),
+        kcal: Math.round((f.kcal || 0) * ratio)
+      };
+    });
+
+    const saveEditEntry = () => {
+      const entries = diary[selectedDate.value] || [];
+      const entry = entries.find(e => e.entryId === editModal.entryId);
+      if (!entry) { editModal.open = false; return; }
+      if (editEffectiveGrams.value <= 0) {
+        showToast('Podaj ilość większą od zera', 'warn');
+        return;
+      }
+
+      entry.slotId = editModal.slotId;
+      entry.grams = editEffectiveGrams.value;
+      if (entry.isMeal) entry.portions = num(editModal.portions) > 0 ? num(editModal.portions) : 1;
+
+      saveAll();
+      editModal.open = false;
+      showToast(`Zaktualizowano: ${entry.food.name} (${formatEntryAmount(entry)})`);
+    };
+
+    const deleteFromEditModal = () => {
+      const id = editModal.entryId;
+      editModal.open = false;
+      removeDiaryEntry(id);
     };
 
     // Dodawanie własnego produktu
@@ -2261,6 +2441,7 @@ createApp({
       getNetCarbs, calcMacro, calcEntryNetCarbs,
       getSlotEntries, getSlotTotals, getSlotName, removeDiaryEntry,
       copyModal, copyQuickDates, copyPreview, openCopyModal, confirmCopyDay, plural,
+      editModal, openEditEntry, editPreview, saveEditEntry, deleteFromEditModal, runToastAction,
       dailyTotals, remainingMacro, netCarbsStatus,
       getKetoBadgeColor, getKetoLabelStyle,
       recalculateKetoTargets, dailyAdviceSummary, smartFoodSuggestions, quickAddSuggestion,
