@@ -1,6 +1,6 @@
 /* Service worker KetoAsystenta – aplikacja ma działać bez internetu.
    Przy każdej zmianie plików w APP_SHELL podbij CACHE_VERSION. */
-const CACHE_VERSION = 'keto-v1';
+const CACHE_VERSION = 'keto-v2';
 
 const APP_SHELL = [
   './',
@@ -9,6 +9,7 @@ const APP_SHELL = [
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-512.png',
   './vendor/vue.global.prod.js',
   './vendor/chart.umd.js',
   './vendor/tailwind.js',
