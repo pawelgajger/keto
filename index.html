@@ -8,10 +8,17 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KetoAsystent">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Osobisty asystent diety ketogenicznej: licznik węglowodanów netto, gotowe posiłki, nawodnienie i elektrolity.">
   <title>KetoAsystent PRO – Osobisty Asystent Diety Ketogenicznej</title>
 
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PWA: instalacja na ekranie głównym i praca offline -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+
+  <!-- Biblioteki trzymamy lokalnie – aplikacja musi działać bez internetu -->
+  <script src="./vendor/tailwind.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -31,10 +38,10 @@
     }
   </script>
 
-  <!-- Vue 3 & Chart.js & Ikony Phosphor -->
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Vue 3 & Chart.js & Ikony Phosphor (lokalnie, offline-first) -->
+  <script src="./vendor/vue.global.prod.js"></script>
+  <script src="./vendor/chart.umd.js"></script>
+  <link rel="stylesheet" href="./vendor/phosphor.css">
 
   <style>
     /* Optymalizacja pod iOS Safari */
@@ -119,7 +126,10 @@
       </div>
       <div>
         <h1 class="font-bold text-lg leading-tight tracking-tight">KetoAsystent <span class="text-xs font-normal text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800">NETTO</span></h1>
-        <p class="text-xs text-slate-400">Kontrola ketozy i makroskładników</p>
+        <p v-if="isOffline" class="text-xs text-amber-400 flex items-center gap-1">
+          <i class="ph-bold ph-wifi-slash"></i> Tryb offline – dane zapisują się lokalnie
+        </p>
+        <p v-else class="text-xs text-slate-400">Kontrola ketozy i makroskładników</p>
       </div>
     </div>
 
@@ -1190,6 +1200,11 @@ createApp({
     const weightHistory = reactive({}); // { 'YYYY-MM-DD': 86.0 }
     const todayWeightInput = ref('');
 
+    // Praca bez internetu (aplikacja i tak trzyma wszystko w localStorage)
+    const isOffline = ref(typeof navigator !== 'undefined' && navigator.onLine === false);
+    window.addEventListener('online', () => { isOffline.value = false; });
+    window.addEventListener('offline', () => { isOffline.value = true; });
+
     // Krótkie potwierdzenia akcji (zapis wagi, posiłku itd.)
     const toast = reactive({ show: false, text: '', type: 'ok' });
     let toastTimer = null;
@@ -2092,7 +2107,7 @@ createApp({
     return {
       activeTab, switchTab, selectedDate, changeDate,
       mealSlots, profile, targets, foods,
-      todayWeightInput, saveDailyWeight, weightSummary, toast,
+      todayWeightInput, saveDailyWeight, weightSummary, toast, isOffline,
       carbLevels, carbLevel, carbSliderPercent, carbPercentOf, setCarbTarget,
       dbView, foodSearchQuery, foodFilter, filteredFoods,
       showCustomFoodForm, newFood, addCustomFood,
@@ -2112,6 +2127,14 @@ createApp({
     };
   }
 }).mount('#app');
+
+// Rejestracja service workera – bez niego aplikacja nie wstanie bez internetu.
+// Działa tylko po HTTPS (lub na localhost), więc błąd nie jest krytyczny.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('Service worker:', err));
+  });
+}
 </script>
 </body>
 </html>
