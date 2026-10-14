@@ -51,7 +51,15 @@
     /* Ukrycie pasków przewijania przy zachowaniu funkcji */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    input, select { font-size: 16px !important; } /* Blokada auto-zoomu w iOS Safari */
+    input, select, textarea { font-size: 16px !important; } /* Blokada auto-zoomu w iOS Safari */
+
+    /* Arkusz modalny – stała wysokość + bezpieczny margines pod home-barem iOS.
+       Bez tego ostatnie pozycje listy chowają się pod krawędzią ekranu. */
+    .modal-sheet {
+      max-height: 88vh;
+      max-height: 88dvh;
+      padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+    }
   </style>
 </head>
 <body class="antialiased selection:bg-emerald-500 selection:text-white">
@@ -112,7 +120,7 @@
                :style="{ width: Math.min(100, (dailyTotals.netCarbs / targets.netCarbs) * 100) + '%' }"></div>
         </div>
 
-        <div class="flex justify-between text-xs text-slate-400 mt-2 pt-2 border-t border-slate-700/60">
+        <div class="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-slate-400 mt-2 pt-2 border-t border-slate-700/60">
           <span>Węglowodany całk.: <strong class="text-slate-200">{{ dailyTotals.carbs.toFixed(1) }} g</strong></span>
           <span>Błonnik (odliczany): <strong class="text-emerald-400">-{{ dailyTotals.fiber.toFixed(1) }} g</strong></span>
           <span v-if="remainingMacro.netCarbs >= 0">Zostało: <strong class="text-emerald-300">{{ remainingMacro.netCarbs.toFixed(1) }} g</strong></span>
@@ -189,11 +197,16 @@
                 <span class="text-[11px] text-slate-400">{{ slot.hint }}</span>
               </div>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2.5">
               <div class="text-right text-xs">
                 <span class="font-bold text-emerald-400">{{ getSlotTotals(slot.id).netCarbs.toFixed(1) }}g W.Netto</span>
                 <span class="text-slate-400 block">{{ getSlotTotals(slot.id).kcal.toFixed(0) }} kcal</span>
               </div>
+              <button v-if="getSlotEntries(slot.id).length" @click="saveSlotAsMeal(slot.id)"
+                      title="Zapisz ten posiłek jako gotowy szablon"
+                      class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/40 text-sky-400 flex items-center justify-center hover:bg-sky-500 hover:text-white active:scale-90 transition">
+                <i class="ph-bold ph-bookmark-simple"></i>
+              </button>
               <button @click="openAddModal(slot.id)" class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center hover:bg-emerald-500 hover:text-white active:scale-90 transition">
                 <i class="ph-bold ph-plus"></i>
               </button>
@@ -205,14 +218,15 @@
             <div v-if="getSlotEntries(slot.id).length === 0" class="py-4 text-center text-xs text-slate-500 italic">
               Brak wpisów. Kliknij "+", aby dodać produkt.
             </div>
-            <div v-for="entry in getSlotEntries(slot.id)" :key="entry.entryId" class="px-4 py-2.5 flex justify-between items-center">
-              <div class="pr-2">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full" :class="getKetoBadgeColor(entry.food)"></span>
-                  <span class="font-semibold text-sm text-slate-100">{{ entry.food.name }}</span>
-                  <span class="text-xs text-slate-400">({{ entry.grams }} g)</span>
+            <div v-for="entry in getSlotEntries(slot.id)" :key="entry.entryId" class="px-4 py-2.5 flex justify-between items-start gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="w-2 h-2 rounded-full shrink-0" :class="getEntryBadgeColor(entry)"></span>
+                  <span class="font-semibold text-sm text-slate-100 break-words">{{ entry.food.name }}</span>
+                  <span v-if="entry.isMeal" class="text-[10px] font-bold text-sky-300 bg-sky-950 border border-sky-800 px-1.5 py-0.5 rounded">POSIŁEK</span>
+                  <span class="text-xs text-slate-400">({{ formatEntryAmount(entry) }})</span>
                 </div>
-                <div class="text-[11px] text-slate-400 mt-0.5 flex gap-2">
+                <div class="text-[11px] text-slate-400 mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
                   <span class="text-emerald-400 font-semibold">W.Netto: {{ calcEntryNetCarbs(entry).toFixed(1) }}g</span>
                   <span>(W: {{ calcMacro(entry.food.carbs, entry.grams) }}g | Bł: {{ calcMacro(entry.food.fiber, entry.grams) }}g)</span>
                   <span>T: {{ calcMacro(entry.food.fat, entry.grams) }}g</span>
@@ -318,6 +332,18 @@
     <!-- ========================================== -->
     <div v-if="activeTab === 'foods'" class="space-y-4">
 
+      <!-- Przełącznik: pojedyncze produkty vs. gotowe posiłki (dieta pudełkowa) -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-800/70 border border-slate-700 rounded-2xl p-1">
+        <button @click="dbView = 'foods'"
+                :class="dbView === 'foods' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'"
+                class="py-2 rounded-xl text-xs font-bold transition">🥑 Produkty ({{ foods.length }})</button>
+        <button @click="dbView = 'meals'"
+                :class="dbView === 'meals' ? 'bg-sky-600 text-white shadow' : 'text-slate-400'"
+                class="py-2 rounded-xl text-xs font-bold transition">🍱 Moje posiłki ({{ meals.length }})</button>
+      </div>
+
+      <div v-if="dbView === 'foods'" class="space-y-4">
+
       <!-- Wyszukiwarka lokalna + Filtr -->
       <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3 space-y-2.5">
         <div class="relative">
@@ -414,10 +440,10 @@
       <!-- Lista produktów w bazie -->
       <div class="space-y-2.5">
         <div v-for="food in filteredFoods" :key="food.id" class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 space-y-2">
-          <div class="flex justify-between items-start">
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-bold text-sm text-white">{{ food.name }}</span>
+          <div class="flex justify-between items-start gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(food).class">
                   {{ getKetoLabelStyle(food).text }}
                 </span>
@@ -457,6 +483,202 @@
           <div v-if="food.substitute" class="bg-amber-950/50 border border-amber-700/50 rounded-xl p-2 text-xs text-amber-200 flex items-center gap-2">
             <i class="ph-fill ph-arrows-left-right text-amber-400 text-base shrink-0"></i>
             <span><strong>Zamiennik Keto:</strong> Zamiast tego wybierz <u>{{ food.substitute }}</u>.</span>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- ------------------------------------------------ -->
+      <!-- WIDOK: MOJE GOTOWE POSIŁKI (dieta pudełkowa itp.) -->
+      <!-- ------------------------------------------------ -->
+      <div v-else class="space-y-4">
+
+        <!-- Wyszukiwarka posiłków -->
+        <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3 space-y-2.5">
+          <div class="relative">
+            <i class="ph-bold ph-magnifying-glass absolute left-3 top-3 text-slate-400"></i>
+            <input type="text" v-model="mealSearchQuery" placeholder="Szukaj posiłku (np. sernik, pudełko)..."
+                   class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm focus:border-sky-500 focus:outline-none">
+          </div>
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar text-xs py-0.5">
+            <button @click="mealCategoryFilter = 'all'"
+                    :class="mealCategoryFilter === 'all' ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'"
+                    class="px-3 py-1.5 rounded-lg font-semibold shrink-0">Wszystkie ({{ meals.length }})</button>
+            <button v-for="cat in mealCategories" :key="cat.id" @click="mealCategoryFilter = cat.id"
+                    :class="mealCategoryFilter === cat.id ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'"
+                    class="px-3 py-1.5 rounded-lg font-semibold shrink-0">{{ cat.icon }} {{ cat.name }}</button>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-400 shrink-0">Sortuj:</span>
+            <select v-model="mealSort" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200">
+              <option value="recent">Ostatnio używane</option>
+              <option value="popular">Najczęściej jedzone</option>
+              <option value="name">Alfabetycznie (A–Z)</option>
+              <option value="carbs">Najniższe W.Netto</option>
+              <option value="kcal">Najwyższe kalorie</option>
+            </select>
+          </div>
+        </div>
+
+        <button @click="openMealForm()"
+                class="w-full bg-sky-600 hover:bg-sky-500 text-white rounded-xl p-3 text-sm font-bold flex items-center justify-center gap-2 active:scale-98 transition">
+          <i class="ph-bold ph-plus-circle text-base"></i> Dodaj gotowy posiłek ręcznie
+        </button>
+
+        <!-- Formularz dodawania / edycji gotowego posiłku -->
+        <div v-if="showMealForm" class="bg-slate-800 border border-sky-500/50 rounded-2xl p-4 space-y-3">
+          <div class="flex justify-between items-center">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-sky-400">
+              {{ mealForm.id ? 'Edytuj posiłek' : 'Nowy posiłek' }} – wartości za CAŁĄ porcję
+            </h3>
+            <button @click="closeMealForm" class="text-slate-400 text-xs hover:text-white">Anuluj</button>
+          </div>
+
+          <input type="text" v-model="mealForm.name" placeholder="Nazwa posiłku (np. Keto sernik jagodowy)"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm">
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[11px] text-slate-400">Kategoria</label>
+              <select v-model="mealForm.category" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option v-for="cat in mealCategories" :key="cat.id" :value="cat.id">{{ cat.icon }} {{ cat.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] text-slate-400">Opis porcji</label>
+              <input type="text" v-model="mealForm.portionLabel" placeholder="np. 1 pudełko / 1 kawałek"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[11px] text-rose-300 font-semibold">Kalorie (kcal / porcja)</label>
+              <input type="number" step="1" v-model.number="mealForm.kcal" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="text-[11px] text-amber-300 font-semibold">Tłuszcz (g / porcja)</label>
+              <input type="number" step="0.1" v-model.number="mealForm.fat" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="text-[11px] text-slate-400">Węglowodany CAŁK. (g)</label>
+              <input type="number" step="0.1" v-model.number="mealForm.carbs" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="text-[11px] text-emerald-400 font-semibold">Błonnik (g)</label>
+              <input type="number" step="0.1" v-model.number="mealForm.fiber" class="w-full bg-slate-900 border border-emerald-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="text-[11px] text-sky-300 font-semibold">Białko (g / porcja)</label>
+              <input type="number" step="0.1" v-model.number="mealForm.protein" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="text-[11px] text-slate-400">Waga porcji (g, opcjonalnie)</label>
+              <input type="number" step="1" v-model.number="mealForm.portionGrams" placeholder="np. 350"
+                     class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm">
+            </div>
+          </div>
+
+          <button @click="autoCalcMealKcal" class="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold py-2 rounded-lg">
+            🧮 Przelicz kalorie z makroskładników ({{ estimatedMealKcal }} kcal)
+          </button>
+
+          <textarea v-model="mealForm.note" rows="2" placeholder="Notatka / skład (np. mascarpone, jagody, spód migdałowy)"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm resize-none"></textarea>
+
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-3 flex justify-between items-center text-xs">
+            <span class="text-slate-400">Węglowodany netto w porcji:</span>
+            <span class="font-bold text-base" :class="getMealLabelStyle(mealForm).textClass">{{ mealFormNetCarbs.toFixed(1) }} g</span>
+          </div>
+
+          <button @click="saveMeal" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl text-sm">
+            {{ mealForm.id ? 'Zapisz zmiany' : 'Zapisz posiłek na przyszłość' }}
+          </button>
+        </div>
+
+        <!-- Pusty stan -->
+        <div v-if="!meals.length" class="bg-slate-800/60 border border-dashed border-slate-700 rounded-2xl p-6 text-center space-y-2">
+          <div class="text-3xl">🍱</div>
+          <p class="text-sm font-bold text-slate-200">Nie masz jeszcze zapisanych posiłków</p>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Dodaj tu całe dania, które jadasz regularnie (np. pudełka z cateringu, keto sernik jagodowy).
+            Wpisujesz makro raz, a potem dodajesz posiłek do dziennika jednym kliknięciem.
+          </p>
+        </div>
+
+        <div v-else-if="!filteredMeals.length" class="text-center text-xs text-slate-500 italic py-6">
+          Brak posiłków pasujących do wyszukiwania.
+        </div>
+
+        <!-- Lista zapisanych posiłków -->
+        <div class="space-y-2.5">
+          <div v-for="meal in filteredMeals" :key="meal.id" class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3.5 space-y-2">
+            <div class="flex justify-between items-start gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-bold text-sm text-white break-words">{{ meal.name }}</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-700">
+                    {{ getMealCategory(meal.category).icon }} {{ getMealCategory(meal.category).name }}
+                  </span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getMealLabelStyle(meal).class">
+                    {{ getMealLabelStyle(meal).text }}
+                  </span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">
+                  {{ meal.portionLabel || '1 porcja' }}
+                  <template v-if="meal.portionGrams"> · {{ meal.portionGrams }} g</template>
+                  <template v-if="meal.usageCount"> · dodano {{ meal.usageCount }}×</template>
+                </p>
+                <p v-if="meal.note" class="text-xs text-slate-400 mt-0.5 break-words">{{ meal.note }}</p>
+              </div>
+              <button @click="toggleMealFavorite(meal)" class="p-1 shrink-0"
+                      :class="meal.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'">
+                <i class="text-lg" :class="meal.favorite ? 'ph-fill ph-star' : 'ph ph-star'"></i>
+              </button>
+            </div>
+
+            <!-- Makro całej porcji -->
+            <div class="grid grid-cols-3 gap-1 pt-2 border-t border-slate-700/60 text-center text-[11px]">
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">W.Netto</span>
+                <strong class="text-emerald-400 text-xs">{{ getMealNetCarbs(meal).toFixed(1) }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Tłuszcz</span>
+                <strong class="text-amber-400">{{ meal.fat }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Białko</span>
+                <strong class="text-sky-400">{{ meal.protein }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Węg.Całk</span>
+                <strong class="text-slate-200">{{ meal.carbs }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Błonnik</span>
+                <strong class="text-slate-200">{{ meal.fiber }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Kalorie</span>
+                <strong class="text-rose-400">{{ meal.kcal }}</strong>
+              </div>
+            </div>
+
+            <div class="flex gap-2 pt-1">
+              <button @click="openQuickAddMeal(meal)"
+                      class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg py-2 text-xs font-bold active:scale-95 transition">
+                + Do dziennika
+              </button>
+              <button @click="openMealForm(meal)"
+                      class="bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg px-3 py-2 text-xs font-bold">
+                <i class="ph-bold ph-pencil-simple"></i>
+              </button>
+              <button @click="deleteMeal(meal)"
+                      class="bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded-lg px-3 py-2 text-xs font-bold">
+                <i class="ph-bold ph-trash"></i>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -605,29 +827,40 @@
 
   <!-- MODAL DODAWANIA PRODUKTU DO POSIŁKU -->
   <div v-if="addModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4 max-h-[88vh] flex flex-col">
-      <div class="flex justify-between items-center">
-        <h3 class="font-bold text-base text-white">Dodaj do posiłku: <span class="text-emerald-400">{{ getSlotName(addModal.slotId) }}</span></h3>
-        <button @click="addModal.open = false" class="text-slate-400 hover:text-white p-1"><i class="ph-bold ph-x text-lg"></i></button>
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white min-w-0">Dodaj do posiłku: <span class="text-emerald-400">{{ getSlotName(addModal.slotId) }}</span></h3>
+        <button @click="addModal.open = false" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
       </div>
 
       <!-- Wybór pory dnia (jeśli otwarto z bazy produktów) -->
-      <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+      <div class="flex gap-1.5 overflow-x-auto no-scrollbar shrink-0 py-0.5">
         <button v-for="s in mealSlots" :key="s.id" @click="addModal.slotId = s.id"
                 :class="addModal.slotId === s.id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'"
-                class="px-2.5 py-1 rounded-lg text-xs font-bold shrink-0">
+                class="px-2.5 py-1.5 rounded-lg text-xs font-bold shrink-0 whitespace-nowrap">
           {{ s.icon }} {{ s.name }}
         </button>
       </div>
 
-      <!-- Wyszukiwarka w modalu -->
-      <input type="text" v-model="addModal.search" placeholder="Wyszukaj produkt..."
-             class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none">
+      <!-- Źródło: pojedyncze produkty czy zapisane posiłki -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-800/70 border border-slate-700 rounded-xl p-1 shrink-0">
+        <button @click="addModal.mode = 'foods'"
+                :class="addModal.mode === 'foods' ? 'bg-emerald-600 text-white' : 'text-slate-400'"
+                class="py-1.5 rounded-lg text-xs font-bold transition">🥑 Produkty</button>
+        <button @click="addModal.mode = 'meals'"
+                :class="addModal.mode === 'meals' ? 'bg-sky-600 text-white' : 'text-slate-400'"
+                class="py-1.5 rounded-lg text-xs font-bold transition">🍱 Moje posiłki ({{ meals.length }})</button>
+      </div>
 
-      <!-- Gramatura + szybkie przyciski wagowe -->
-      <div class="bg-slate-800/80 rounded-xl p-3 flex items-center justify-between border border-slate-700">
-        <span class="text-xs font-semibold text-slate-300">Ilość (gramy):</span>
-        <div class="flex items-center gap-1.5">
+      <!-- Wyszukiwarka w modalu -->
+      <input type="text" v-model="addModal.search"
+             :placeholder="addModal.mode === 'meals' ? 'Wyszukaj zapisany posiłek...' : 'Wyszukaj produkt...'"
+             class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none shrink-0">
+
+      <!-- Gramatura (produkty) -->
+      <div v-if="addModal.mode === 'foods'" class="bg-slate-800/80 rounded-xl p-3 flex items-center justify-between gap-2 flex-wrap border border-slate-700 shrink-0">
+        <span class="text-xs font-semibold text-slate-300 shrink-0">Ilość (g):</span>
+        <div class="flex items-center gap-1.5 flex-wrap justify-end">
           <button v-for="g in [30, 50, 100, 150, 200]" :key="g" @click="addModal.grams = g"
                   :class="addModal.grams === g ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'"
                   class="px-2 py-1 rounded text-xs font-bold">{{ g }}g</button>
@@ -635,14 +868,28 @@
         </div>
       </div>
 
-      <!-- Lista wyboru produktu -->
-      <div class="overflow-y-auto space-y-2 flex-1 pr-1">
+      <!-- Liczba porcji (gotowe posiłki) -->
+      <div v-else class="bg-slate-800/80 rounded-xl p-3 flex items-center justify-between gap-2 flex-wrap border border-slate-700 shrink-0">
+        <span class="text-xs font-semibold text-slate-300 shrink-0">Porcje:</span>
+        <div class="flex items-center gap-1.5 flex-wrap justify-end">
+          <button v-for="p in [0.5, 1, 1.5, 2]" :key="p" @click="addModal.portions = p"
+                  :class="addModal.portions === p ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'"
+                  class="px-2.5 py-1 rounded text-xs font-bold">{{ p }}×</button>
+          <input type="number" step="0.5" min="0.1" v-model.number="addModal.portions" class="w-16 bg-slate-950 border border-sky-500/60 rounded-lg px-2 py-1 text-center text-sm font-bold text-sky-300">
+        </div>
+      </div>
+
+      <!-- Lista wyboru: produkty -->
+      <div v-if="addModal.mode === 'foods'" class="overflow-y-auto space-y-2 flex-1 min-h-0 pr-1 -mr-1">
+        <div v-if="!modalFilteredFoods.length" class="text-center text-xs text-slate-500 italic py-6">
+          Brak produktów pasujących do wyszukiwania.
+        </div>
         <div v-for="food in modalFilteredFoods" :key="food.id"
-             class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center">
-          <div class="pr-2">
+             class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center gap-2">
+          <div class="min-w-0">
             <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full" :class="getKetoBadgeColor(food)"></span>
-              <span class="font-bold text-sm text-white">{{ food.name }}</span>
+              <span class="w-2 h-2 rounded-full shrink-0" :class="getKetoBadgeColor(food)"></span>
+              <span class="font-bold text-sm text-white break-words">{{ food.name }}</span>
             </div>
             <div class="text-[11px] text-slate-400 mt-0.5">
               W porcji <strong>{{ addModal.grams }}g</strong>:
@@ -654,6 +901,38 @@
           </div>
           <button @click="confirmAddFood(food)"
                   class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-2 rounded-xl text-xs shrink-0 active:scale-95 transition">
+            Dodaj
+          </button>
+        </div>
+      </div>
+
+      <!-- Lista wyboru: zapisane posiłki -->
+      <div v-else class="overflow-y-auto space-y-2 flex-1 min-h-0 pr-1 -mr-1">
+        <div v-if="!meals.length" class="text-center text-xs text-slate-400 py-6 px-3 leading-relaxed">
+          Nie masz jeszcze zapisanych posiłków.<br>
+          Dodaj je w zakładce <strong class="text-sky-400">Produkty → Moje posiłki</strong>.
+        </div>
+        <div v-else-if="!modalFilteredMeals.length" class="text-center text-xs text-slate-500 italic py-6">
+          Brak posiłków pasujących do wyszukiwania.
+        </div>
+        <div v-for="meal in modalFilteredMeals" :key="meal.id"
+             class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3 flex justify-between items-center gap-2">
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="w-2 h-2 rounded-full shrink-0" :class="getMealBadgeColor(meal)"></span>
+              <span class="font-bold text-sm text-white break-words">{{ meal.name }}</span>
+              <i v-if="meal.favorite" class="ph-fill ph-star text-amber-400 text-xs"></i>
+            </div>
+            <div class="text-[11px] text-slate-400 mt-0.5">
+              <strong>{{ safePortions }}× {{ meal.portionLabel || 'porcja' }}</strong>:
+              <span class="text-emerald-400 font-bold">W.Netto: {{ (getMealNetCarbs(meal) * safePortions).toFixed(1) }}g</span> |
+              T: {{ (meal.fat * safePortions).toFixed(1) }}g |
+              B: {{ (meal.protein * safePortions).toFixed(1) }}g |
+              {{ Math.round(meal.kcal * safePortions) }} kcal
+            </div>
+          </div>
+          <button @click="confirmAddMeal(meal)"
+                  class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-2 rounded-xl text-xs shrink-0 active:scale-95 transition">
             Dodaj
           </button>
         </div>
@@ -724,6 +1003,16 @@ const DEFAULT_FOODS = [
   { id: 'f23', name: 'Cukier biały / Miód', kcal: 399, fat: 0, carbs: 99.8, fiber: 0, protein: 0, tip: 'Natychmiast przerywa ketozę i blokuje spalanie tłuszczu.', substitute: 'Erytrytol (0 kcal, 0g W.Netto, IG=0) lub Ksylitol w małych ilościach' }
 ];
 
+// Kategorie gotowych posiłków (szablonów) zapisywanych przez użytkownika
+const MEAL_CATEGORIES = [
+  { id: 'any', name: 'Dowolny', icon: '🍽️' },
+  { id: 'breakfast', name: 'Śniadanie', icon: '🍳' },
+  { id: 'lunch', name: 'Obiad', icon: '🥩' },
+  { id: 'dinner', name: 'Kolacja', icon: '🥗' },
+  { id: 'snacks', name: 'Przekąska', icon: '🥜' },
+  { id: 'dessert', name: 'Deser', icon: '🍰' }
+];
+
 createApp({
   setup() {
     const activeTab = ref('diary');
@@ -757,15 +1046,42 @@ createApp({
     });
 
     const foods = ref([...DEFAULT_FOODS]);
+
+    // Gotowe posiłki (szablony całych dań – np. pudełka z cateringu, keto sernik).
+    // Makro trzymane ZA CAŁĄ PORCJĘ, nie na 100 g.
+    const meals = ref([]);
+    const mealCategories = MEAL_CATEGORIES;
+
     const diary = reactive({});        // { 'YYYY-MM-DD': [ { entryId, slotId, food, grams } ] }
     const weightHistory = reactive({}); // { 'YYYY-MM-DD': 86.0 }
     const todayWeightInput = ref(null);
 
     // Wyszukiwarka i dodawanie produktów
+    const dbView = ref('foods');       // 'foods' | 'meals'
     const foodSearchQuery = ref('');
     const foodFilter = ref('all');
     const showCustomFoodForm = ref(false);
     const newFood = reactive({ name: '', kcal: 200, fat: 15, carbs: 3, fiber: 1, protein: 12, tip: '', substitute: '' });
+
+    // Wyszukiwarka i formularz gotowych posiłków
+    const mealSearchQuery = ref('');
+    const mealCategoryFilter = ref('all');
+    const mealSort = ref('recent');
+    const showMealForm = ref(false);
+    const emptyMealForm = () => ({
+      id: null,
+      name: '',
+      category: 'any',
+      portionLabel: '1 porcja',
+      portionGrams: null,
+      kcal: 0,
+      fat: 0,
+      carbs: 0,
+      fiber: 0,
+      protein: 0,
+      note: ''
+    });
+    const mealForm = reactive(emptyMealForm());
 
     // Open Food Facts API
     const showOffSearch = ref(false);
@@ -775,7 +1091,7 @@ createApp({
     const offResults = ref([]);
 
     // Modal dodawania do dziennika
-    const addModal = reactive({ open: false, slotId: 'breakfast', search: '', grams: 100 });
+    const addModal = reactive({ open: false, slotId: 'breakfast', search: '', grams: 100, mode: 'foods', portions: 1 });
 
     // Wczytanie danych z localStorage
     const loadFromStorage = () => {
@@ -786,6 +1102,7 @@ createApp({
           if (parsed.profile) Object.assign(profile, parsed.profile);
           if (parsed.targets) Object.assign(targets, parsed.targets);
           if (parsed.foods && parsed.foods.length) foods.value = parsed.foods;
+          if (Array.isArray(parsed.meals)) meals.value = parsed.meals;
           if (parsed.diary) Object.assign(diary, parsed.diary);
           if (parsed.weightHistory) Object.assign(weightHistory, parsed.weightHistory);
         } else {
@@ -803,6 +1120,7 @@ createApp({
         profile,
         targets,
         foods: foods.value,
+        meals: meals.value,
         diary,
         weightHistory
       };
@@ -825,6 +1143,25 @@ createApp({
         ];
       }
       weightHistory[todayStr] = profile.weight;
+
+      // Dwa przykłady gotowych posiłków, żeby od razu było widać ideę szablonów
+      meals.value = [
+        {
+          id: 'meal_demo_1', name: 'Keto sernik jagodowy', category: 'dessert',
+          portionLabel: '1 kawałek', portionGrams: 120,
+          kcal: 340, fat: 31.0, carbs: 8.0, fiber: 2.0, protein: 7.0,
+          note: 'Mascarpone, jagody, spód z mąki migdałowej, erytrytol.',
+          favorite: true, usageCount: 0, lastUsed: null, createdAt: Date.now()
+        },
+        {
+          id: 'meal_demo_2', name: 'Pudełko: łosoś z brokułami i masłem', category: 'lunch',
+          portionLabel: '1 pudełko', portionGrams: 380,
+          kcal: 620, fat: 45.0, carbs: 11.0, fiber: 5.0, protein: 42.0,
+          note: 'Typowe pudełko z cateringu keto – makro przepisane z etykiety.',
+          favorite: false, usageCount: 0, lastUsed: null, createdAt: Date.now()
+        }
+      ];
+
       saveAll();
     };
 
@@ -937,6 +1274,8 @@ createApp({
       addModal.slotId = slotId;
       addModal.search = '';
       addModal.grams = 100;
+      addModal.portions = 1;
+      addModal.mode = 'foods';
       addModal.open = true;
     };
 
@@ -944,6 +1283,7 @@ createApp({
       addModal.slotId = 'breakfast';
       addModal.search = food.name;
       addModal.grams = 100;
+      addModal.mode = 'foods';
       addModal.open = true;
     };
 
@@ -997,6 +1337,245 @@ createApp({
       newFood.substitute = '';
       showCustomFoodForm.value = false;
     };
+
+    /* ------------------------------------------------------------------ */
+    /* GOTOWE POSIŁKI – zapisywane szablony całych dań                      */
+    /* ------------------------------------------------------------------ */
+
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const getMealNetCarbs = (meal) => Math.max(0, num(meal.carbs) - num(meal.fiber));
+    const getMealCategory = (id) => mealCategories.find(c => c.id === id) || mealCategories[0];
+
+    // Progi dla całego dania są luźniejsze niż dla 100 g produktu
+    const getMealBadgeColor = (meal) => {
+      const nc = getMealNetCarbs(meal);
+      if (nc <= 10) return 'bg-emerald-400';
+      if (nc <= 20) return 'bg-amber-400';
+      return 'bg-red-500';
+    };
+
+    const getMealLabelStyle = (meal) => {
+      const nc = getMealNetCarbs(meal);
+      if (nc <= 10) return { text: 'KETO OK (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-emerald-950 text-emerald-300 border border-emerald-700', textClass: 'text-emerald-400' };
+      if (nc <= 20) return { text: 'KONTROLUJ (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-amber-950 text-amber-300 border border-amber-700', textClass: 'text-amber-400' };
+      return { text: 'WYSOKIE WĘGLE (' + nc.toFixed(1) + 'g W.Netto)', class: 'bg-red-950 text-red-300 border border-red-700', textClass: 'text-red-400' };
+    };
+
+    const matchesMealQuery = (meal, query) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      const haystack = [meal.name, meal.note, getMealCategory(meal.category).name].join(' ').toLowerCase();
+      return q.split(/\s+/).every(part => haystack.includes(part));
+    };
+
+    const filteredMeals = computed(() => {
+      const list = meals.value.filter(m =>
+        matchesMealQuery(m, mealSearchQuery.value) &&
+        (mealCategoryFilter.value === 'all' || m.category === mealCategoryFilter.value)
+      );
+
+      const sorted = [...list];
+      if (mealSort.value === 'name') {
+        sorted.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+      } else if (mealSort.value === 'popular') {
+        sorted.sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0));
+      } else if (mealSort.value === 'carbs') {
+        sorted.sort((a, b) => getMealNetCarbs(a) - getMealNetCarbs(b));
+      } else if (mealSort.value === 'kcal') {
+        sorted.sort((a, b) => num(b.kcal) - num(a.kcal));
+      } else {
+        sorted.sort((a, b) => (b.lastUsed || b.createdAt || 0) - (a.lastUsed || a.createdAt || 0));
+      }
+
+      // Ulubione zawsze na górze, niezależnie od wybranego sortowania
+      return sorted.sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+    });
+
+    const modalFilteredMeals = computed(() => {
+      const list = meals.value.filter(m => matchesMealQuery(m, addModal.search));
+      return [...list].sort((a, b) => {
+        const fav = (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+        if (fav) return fav;
+        // Podpowiadamy najpierw posiłki pasujące do wybranej pory dnia
+        const slotMatch = (b.category === addModal.slotId ? 1 : 0) - (a.category === addModal.slotId ? 1 : 0);
+        if (slotMatch) return slotMatch;
+        return (b.lastUsed || b.createdAt || 0) - (a.lastUsed || a.createdAt || 0);
+      });
+    });
+
+    const mealFormNetCarbs = computed(() => getMealNetCarbs(mealForm));
+
+    // Współczynniki Atwatera (błonnik ~2 kcal/g)
+    const estimatedMealKcal = computed(() => Math.round(
+      num(mealForm.fat) * 9 +
+      num(mealForm.protein) * 4 +
+      Math.max(0, num(mealForm.carbs) - num(mealForm.fiber)) * 4 +
+      num(mealForm.fiber) * 2
+    ));
+
+    const autoCalcMealKcal = () => { mealForm.kcal = estimatedMealKcal.value; };
+
+    const openMealForm = (meal = null) => {
+      Object.assign(mealForm, emptyMealForm());
+      if (meal) {
+        Object.assign(mealForm, {
+          id: meal.id,
+          name: meal.name,
+          category: meal.category || 'any',
+          portionLabel: meal.portionLabel || '1 porcja',
+          portionGrams: meal.portionGrams || null,
+          kcal: num(meal.kcal),
+          fat: num(meal.fat),
+          carbs: num(meal.carbs),
+          fiber: num(meal.fiber),
+          protein: num(meal.protein),
+          note: meal.note || ''
+        });
+      }
+      showMealForm.value = true;
+    };
+
+    const closeMealForm = () => {
+      showMealForm.value = false;
+      Object.assign(mealForm, emptyMealForm());
+    };
+
+    const saveMeal = () => {
+      if (!mealForm.name.trim()) {
+        alert('Podaj nazwę posiłku.');
+        return;
+      }
+      const data = {
+        name: mealForm.name.trim(),
+        category: mealForm.category,
+        portionLabel: (mealForm.portionLabel || '').trim() || '1 porcja',
+        portionGrams: num(mealForm.portionGrams) || null,
+        kcal: Math.round(num(mealForm.kcal)),
+        fat: +num(mealForm.fat).toFixed(1),
+        carbs: +num(mealForm.carbs).toFixed(1),
+        fiber: +num(mealForm.fiber).toFixed(1),
+        protein: +num(mealForm.protein).toFixed(1),
+        note: (mealForm.note || '').trim()
+      };
+
+      if (mealForm.id) {
+        const idx = meals.value.findIndex(m => m.id === mealForm.id);
+        if (idx !== -1) meals.value[idx] = { ...meals.value[idx], ...data };
+      } else {
+        meals.value.unshift({
+          id: 'meal_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          ...data,
+          favorite: false,
+          usageCount: 0,
+          lastUsed: null,
+          createdAt: Date.now()
+        });
+      }
+      saveAll();
+      closeMealForm();
+    };
+
+    const deleteMeal = (meal) => {
+      if (!confirm(`Usunąć posiłek "${meal.name}" z zapisanych?`)) return;
+      meals.value = meals.value.filter(m => m.id !== meal.id);
+      if (mealForm.id === meal.id) closeMealForm();
+      saveAll();
+    };
+
+    const toggleMealFavorite = (meal) => {
+      meal.favorite = !meal.favorite;
+      saveAll();
+    };
+
+    // Posiłek trafia do dziennika jako wpis, w którym "100 g" = 1 porcja,
+    // dzięki czemu wszystkie istniejące sumowania makro działają bez zmian.
+    const mealAsFood = (meal) => ({
+      id: meal.id,
+      name: meal.name,
+      kcal: num(meal.kcal),
+      fat: num(meal.fat),
+      carbs: num(meal.carbs),
+      fiber: num(meal.fiber),
+      protein: num(meal.protein),
+      tip: meal.note || '',
+      substitute: '',
+      isMeal: true,
+      portionLabel: meal.portionLabel || '1 porcja',
+      portionGrams: meal.portionGrams || null
+    });
+
+    const safePortions = computed(() => (num(addModal.portions) > 0 ? num(addModal.portions) : 1));
+
+    const confirmAddMeal = (meal) => {
+      const portions = safePortions.value;
+      if (!diary[selectedDate.value]) diary[selectedDate.value] = [];
+      diary[selectedDate.value].push({
+        entryId: 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        slotId: addModal.slotId,
+        food: mealAsFood(meal),
+        grams: portions * 100,
+        portions,
+        isMeal: true
+      });
+
+      const stored = meals.value.find(m => m.id === meal.id);
+      if (stored) {
+        stored.usageCount = (stored.usageCount || 0) + 1;
+        stored.lastUsed = Date.now();
+      }
+
+      saveAll();
+      addModal.open = false;
+    };
+
+    const openQuickAddMeal = (meal) => {
+      addModal.slotId = mealSlots.some(s => s.id === meal.category) ? meal.category : 'breakfast';
+      addModal.mode = 'meals';
+      addModal.search = meal.name;
+      addModal.portions = 1;
+      addModal.open = true;
+    };
+
+    // Zapis aktualnej zawartości pory dnia jako szablon (np. powtarzalne pudełko)
+    const saveSlotAsMeal = (slotId) => {
+      const entries = getSlotEntries(slotId);
+      if (!entries.length) return;
+      const totals = getSlotTotals(slotId);
+      const grams = entries.reduce((sum, e) => {
+        if (e.isMeal) return sum + (e.food.portionGrams ? e.food.portionGrams * (e.grams / 100) : 0);
+        return sum + e.grams;
+      }, 0);
+
+      Object.assign(mealForm, emptyMealForm(), {
+        name: getSlotName(slotId).split(' / ')[0] + ' – ' + selectedDate.value,
+        category: slotId,
+        portionLabel: '1 porcja',
+        portionGrams: Math.round(grams) || null,
+        kcal: Math.round(totals.kcal),
+        fat: +totals.fat.toFixed(1),
+        carbs: +totals.carbs.toFixed(1),
+        fiber: +totals.fiber.toFixed(1),
+        protein: +totals.protein.toFixed(1),
+        note: entries.map(e => e.food.name + ' ' + (e.isMeal ? e.grams / 100 + '×' : e.grams + 'g')).join(', ')
+      });
+
+      showMealForm.value = true;
+      dbView.value = 'meals';
+      activeTab.value = 'foods';
+      nextTick(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    };
+
+    // Wyświetlanie ilości we wpisie dziennika (gramy vs. porcje posiłku)
+    const formatEntryAmount = (entry) => {
+      if (!entry.isMeal) return entry.grams + ' g';
+      const portions = entry.portions || entry.grams / 100;
+      const label = entry.food.portionLabel || 'porcja';
+      const grams = entry.food.portionGrams ? ', ' + Math.round(entry.food.portionGrams * portions) + ' g' : '';
+      return portions + '× ' + label + grams;
+    };
+
+    const getEntryBadgeColor = (entry) =>
+      entry.isMeal ? getMealBadgeColor(entry.food) : getKetoBadgeColor(entry.food);
 
     // Integracja z Open Food Facts API
     const searchOpenFoodFacts = async () => {
@@ -1278,8 +1857,13 @@ createApp({
       activeTab, switchTab, selectedDate, changeDate,
       mealSlots, profile, targets, foods,
       todayWeightInput, saveDailyWeight,
-      foodSearchQuery, foodFilter, filteredFoods,
+      dbView, foodSearchQuery, foodFilter, filteredFoods,
       showCustomFoodForm, newFood, addCustomFood,
+      meals, mealCategories, mealSearchQuery, mealCategoryFilter, mealSort, filteredMeals, modalFilteredMeals,
+      showMealForm, mealForm, mealFormNetCarbs, estimatedMealKcal, autoCalcMealKcal,
+      openMealForm, closeMealForm, saveMeal, deleteMeal, toggleMealFavorite,
+      getMealNetCarbs, getMealCategory, getMealBadgeColor, getMealLabelStyle,
+      confirmAddMeal, openQuickAddMeal, saveSlotAsMeal, formatEntryAmount, getEntryBadgeColor, safePortions,
       showOffSearch, offQuery, offLoading, offError, offResults, searchOpenFoodFacts, importFromOff,
       addModal, openAddModal, openQuickAddFromDb, modalFilteredFoods, confirmAddFood,
       getNetCarbs, calcMacro, calcEntryNetCarbs,
