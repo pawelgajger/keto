@@ -439,6 +439,12 @@
         </div>
       </div>
 
+      <!-- Skaner kodów kreskowych -->
+      <button @click="openScanner"
+              class="w-full bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 text-white rounded-xl p-3 text-sm font-bold flex items-center justify-center gap-2 active:scale-98 transition shadow">
+        <i class="ph-bold ph-barcode text-lg"></i> Skanuj kod kreskowy produktu
+      </button>
+
       <!-- Przyciski: Dodaj własny produkt / Szukaj w Open Food Facts API -->
       <div class="grid grid-cols-2 gap-2">
         <button @click="showCustomFoodForm = !showCustomFoodForm"
@@ -1057,6 +1063,111 @@
           <button @click="confirmAddMeal(meal)"
                   class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-2 rounded-xl text-xs shrink-0 active:scale-95 transition">
             Dodaj
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL SKANERA KODÓW KRESKOWYCH -->
+  <div v-if="scanModal.open" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white flex items-center gap-2 min-w-0">
+          <i class="ph-bold ph-barcode text-sky-400"></i> Skaner kodów
+        </h3>
+        <button @click="closeScanner" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-3 pr-1 -mr-1">
+        <!-- Podgląd z kamery -->
+        <div v-show="scanModal.phase === 'starting' || scanModal.phase === 'scanning'"
+             class="relative rounded-2xl overflow-hidden bg-black border border-slate-700 aspect-[4/3]">
+          <video id="scanVideo" playsinline muted autoplay class="w-full h-full object-cover"></video>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="w-4/5 h-24 border-2 border-emerald-400/90 rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,.45)]"></div>
+          </div>
+          <div class="absolute bottom-2 left-0 right-0 text-center text-[11px] text-white/90 font-semibold">
+            {{ scanModal.phase === 'starting' ? 'Uruchamiam kamerę…' : 'Ustaw kod kreskowy w ramce' }}
+          </div>
+        </div>
+
+        <!-- Szukanie w bazie -->
+        <div v-if="scanModal.phase === 'lookup'" class="text-center py-6 text-sm text-slate-300">
+          <i class="ph-bold ph-magnifying-glass text-2xl text-sky-400 block mb-2"></i>
+          Szukam kodu <strong class="text-white">{{ scanModal.code }}</strong> w Open Food Facts…
+        </div>
+
+        <!-- Błąd / brak wyniku -->
+        <div v-if="scanModal.phase === 'error'"
+             class="bg-amber-950/60 border border-amber-700/70 rounded-xl p-3 text-xs text-amber-200 leading-relaxed">
+          {{ scanModal.message }}
+        </div>
+
+        <!-- Znaleziony produkt -->
+        <div v-if="scanModal.phase === 'result' && scanModal.product" class="space-y-3">
+          <div class="bg-slate-800/90 border border-emerald-600/50 rounded-2xl p-3.5 space-y-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="w-2 h-2 rounded-full shrink-0" :class="getKetoBadgeColor(scanModal.product)"></span>
+              <span class="font-bold text-sm text-white break-words">{{ scanModal.product.name }}</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="getKetoLabelStyle(scanModal.product).class">
+                {{ getKetoLabelStyle(scanModal.product).text }}
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400">Kod {{ scanModal.code }} · wartości na 100 g</p>
+            <div class="grid grid-cols-5 gap-1 text-center text-[11px]">
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">W.Netto</span>
+                <strong class="text-emerald-400 text-xs">{{ getNetCarbs(scanModal.product).toFixed(1) }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Węg.</span>
+                <strong class="text-slate-200">{{ scanModal.product.carbs }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Błonnik</span>
+                <strong class="text-slate-200">{{ scanModal.product.fiber }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Tłuszcz</span>
+                <strong class="text-amber-400">{{ scanModal.product.fat }}g</strong>
+              </div>
+              <div class="bg-slate-900/90 rounded p-1">
+                <span class="text-slate-400 block">Białko</span>
+                <strong class="text-sky-400">{{ scanModal.product.protein }}g</strong>
+              </div>
+            </div>
+            <p v-if="!scanModal.product.fiber" class="text-[10px] text-amber-300/90">
+              Producent nie podał błonnika – węglowodany netto mogą być nieco zawyżone.
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button @click="saveScannedProduct(false)"
+                    class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-xl text-xs">
+              Zapisz w bazie
+            </button>
+            <button @click="saveScannedProduct(true)"
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs">
+              Zapisz i dodaj do dziennika
+            </button>
+          </div>
+        </div>
+
+        <!-- Ręczne wpisanie kodu (gdy kamera niedostępna albo kod się nie czyta) -->
+        <div class="bg-slate-800/70 border border-slate-700 rounded-xl p-3 space-y-2">
+          <span class="text-xs font-semibold text-slate-300">Albo wpisz kod z opakowania:</span>
+          <div class="flex gap-2">
+            <input type="text" inputmode="numeric" v-model="scanModal.manualCode" placeholder="np. 5900512300320"
+                   @keyup.enter="lookupBarcode(scanModal.manualCode)"
+                   class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+            <button @click="lookupBarcode(scanModal.manualCode)"
+                    class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-4 rounded-lg text-xs shrink-0">
+              Szukaj
+            </button>
+          </div>
+          <button v-if="scanModal.phase !== 'scanning' && scanModal.phase !== 'starting'" @click="openScanner"
+                  class="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5">
+            <i class="ph-bold ph-camera"></i> Skanuj ponownie
           </button>
         </div>
       </div>
@@ -2092,6 +2203,186 @@ createApp({
       }
     };
 
+    /* ------------------------------------------------------------------ */
+    /* SKANER KODÓW KRESKOWYCH (EAN) + Open Food Facts                      */
+    /* ------------------------------------------------------------------ */
+
+    const scanModal = reactive({
+      open: false,
+      phase: 'idle',      // idle | starting | scanning | lookup | result | error
+      message: '',
+      code: '',
+      manualCode: '',
+      product: null
+    });
+
+    let mediaStream = null;
+    let zxingReader = null;
+    let detectLoop = null;
+
+    const loadScriptOnce = (src) => new Promise((resolve, reject) => {
+      if (document.querySelector(`script[data-src="${src}"]`)) return resolve();
+      const el = document.createElement('script');
+      el.src = src;
+      el.dataset.src = src;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error('Nie udało się wczytać ' + src));
+      document.head.appendChild(el);
+    });
+
+    const stopScanner = () => {
+      clearInterval(detectLoop);
+      detectLoop = null;
+      if (zxingReader) {
+        try { zxingReader.reset(); } catch (e) { /* biblioteka mogła już posprzątać */ }
+        zxingReader = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      const video = document.getElementById('scanVideo');
+      if (video) video.srcObject = null;
+    };
+
+    const closeScanner = () => {
+      stopScanner();
+      scanModal.open = false;
+      scanModal.phase = 'idle';
+    };
+
+    const openScanner = async () => {
+      stopScanner();
+      scanModal.open = true;
+      scanModal.phase = 'starting';
+      scanModal.message = '';
+      scanModal.product = null;
+      scanModal.code = '';
+      await nextTick();
+
+      const video = document.getElementById('scanVideo');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Ta przeglądarka nie udostępnia kamery (kamera działa tylko przez HTTPS). Wpisz kod ręcznie poniżej.';
+        return;
+      }
+
+      try {
+        if ('BarcodeDetector' in window) {
+          // Natywny dekoder (Chrome na Androidzie) – najszybszy i najlżejszy
+          const detector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
+          });
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } }
+          });
+          video.srcObject = mediaStream;
+          await video.play();
+          scanModal.phase = 'scanning';
+          detectLoop = setInterval(async () => {
+            if (scanModal.phase !== 'scanning') return;
+            try {
+              const found = await detector.detect(video);
+              if (found && found.length) lookupBarcode(found[0].rawValue);
+            } catch (e) { /* pojedyncza nieudana klatka nic nie zmienia */ }
+          }, 350);
+        } else {
+          // Safari/iOS nie ma BarcodeDetector – dokładamy lokalny dekoder ZXing
+          await loadScriptOnce('./vendor/zxing.min.js');
+          zxingReader = new window.ZXing.BrowserMultiFormatReader();
+          scanModal.phase = 'scanning';
+          await zxingReader.decodeFromConstraints(
+            { video: { facingMode: { ideal: 'environment' } } },
+            video,
+            (result) => { if (result) lookupBarcode(result.getText()); }
+          );
+        }
+      } catch (err) {
+        stopScanner();
+        scanModal.phase = 'error';
+        scanModal.message = err && err.name === 'NotAllowedError'
+          ? 'Brak zgody na dostęp do kamery. Zezwól na kamerę w ustawieniach przeglądarki albo wpisz kod ręcznie.'
+          : 'Nie udało się uruchomić kamery (' + (err && err.message ? err.message : 'nieznany błąd') + '). Wpisz kod ręcznie poniżej.';
+      }
+    };
+
+    const lookupBarcode = async (rawCode) => {
+      const code = String(rawCode || '').replace(/\D/g, '');
+      if (code.length < 8) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Kod kreskowy ma zwykle 8 lub 13 cyfr. Sprawdź wpisaną wartość.';
+        return;
+      }
+
+      stopScanner();
+      scanModal.code = code;
+      scanModal.phase = 'lookup';
+      scanModal.product = null;
+
+      if (!navigator.onLine) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Brak internetu – bazy Open Food Facts nie da się teraz odpytać. Produkt możesz dodać ręcznie, a kod sprawdzić później.';
+        return;
+      }
+
+      try {
+        const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json`
+          + '?fields=product_name,product_name_pl,brands,quantity,nutriments';
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== 1 || !data.product) {
+          scanModal.phase = 'error';
+          scanModal.message = `Nie znaleziono produktu o kodzie ${code} w Open Food Facts. Dodaj go ręcznie – zajmie chwilę, a zostanie w Twojej bazie.`;
+          return;
+        }
+
+        const n = data.product.nutriments || {};
+        // W bazie OFF nazwy bywają puste albo wypełnione kropką – bierzemy pierwszą sensowną
+        const clean = (txt) => String(txt || '').trim().replace(/^[.\-–_]+$/, '');
+        const title = clean(data.product.product_name_pl) || clean(data.product.product_name);
+        const brand = clean((data.product.brands || '').split(',')[0]);
+        const name = [title, brand].filter(Boolean).join(' – ') || ('Produkt ' + code);
+
+        scanModal.product = {
+          id: 'scan_' + code,
+          name,
+          kcal: Math.round(n['energy-kcal_100g'] || 0),
+          fat: +(n.fat_100g || 0).toFixed(1),
+          carbs: +(n.carbohydrates_100g || 0).toFixed(1),
+          fiber: +(n.fiber_100g || 0).toFixed(1),
+          protein: +(n.proteins_100g || 0).toFixed(1),
+          tip: `Zeskanowano kod ${code}${data.product.quantity ? ' · opakowanie ' + data.product.quantity : ''}.`,
+          substitute: '',
+          barcode: code
+        };
+        scanModal.phase = 'result';
+      } catch (err) {
+        scanModal.phase = 'error';
+        scanModal.message = 'Błąd połączenia z Open Food Facts. Spróbuj ponownie albo wpisz produkt ręcznie.';
+      }
+    };
+
+    const saveScannedProduct = (alsoAddToDiary) => {
+      const p = scanModal.product;
+      if (!p) return;
+
+      const existing = foods.value.find(f => f.barcode === p.barcode);
+      const food = existing || { ...p, id: 'scan_' + Date.now() };
+      if (!existing) foods.value.unshift(food);
+
+      saveAll();
+      scanModal.open = false;
+      stopScanner();
+
+      if (alsoAddToDiary) {
+        openQuickAddFromDb(food);
+        showToast(`${food.name} – wybierz porę dnia i gramaturę`);
+      } else {
+        showToast(existing ? `${food.name} jest już w bazie` : `Zapisano w bazie: ${food.name}`);
+      }
+    };
+
     const importFromOff = (item) => {
       const net = Math.max(0, item.carbs - item.fiber);
       foods.value.unshift({
@@ -2437,6 +2728,7 @@ createApp({
       getMealNetCarbs, getMealCategory, getMealBadgeColor, getMealLabelStyle,
       confirmAddMeal, openQuickAddMeal, saveSlotAsMeal, formatEntryAmount, getEntryBadgeColor, safePortions,
       showOffSearch, offQuery, offLoading, offError, offResults, searchOpenFoodFacts, importFromOff,
+      scanModal, openScanner, closeScanner, lookupBarcode, saveScannedProduct,
       addModal, openAddModal, openQuickAddFromDb, modalFilteredFoods, confirmAddFood,
       getNetCarbs, calcMacro, calcEntryNetCarbs,
       getSlotEntries, getSlotTotals, getSlotName, removeDiaryEntry,
