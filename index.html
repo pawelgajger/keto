@@ -249,6 +249,13 @@
         </p>
       </div>
 
+      <!-- KOPIOWANIE CAŁEGO DNIA -->
+      <button @click="openCopyModal('day')"
+              class="w-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl py-2.5 text-xs font-bold text-slate-200 flex items-center justify-center gap-2 active:scale-98 transition">
+        <i class="ph-bold ph-copy text-base text-sky-400"></i>
+        Skopiuj jadłospis z innego dnia
+      </button>
+
       <!-- SEKCJE POSIŁKÓW (Podział na pory dnia) -->
       <div class="space-y-4">
         <div v-for="slot in mealSlots" :key="slot.id" class="bg-slate-800/70 border border-slate-700/70 rounded-2xl overflow-hidden">
@@ -270,6 +277,11 @@
                       title="Zapisz ten posiłek jako gotowy szablon"
                       class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/40 text-sky-400 flex items-center justify-center hover:bg-sky-500 hover:text-white active:scale-90 transition">
                 <i class="ph-bold ph-bookmark-simple"></i>
+              </button>
+              <button v-else @click="openCopyModal(slot.id)"
+                      title="Skopiuj ten posiłek z innego dnia"
+                      class="w-8 h-8 rounded-lg bg-slate-700/60 border border-slate-600 text-slate-300 flex items-center justify-center hover:bg-sky-600 hover:text-white active:scale-90 transition">
+                <i class="ph-bold ph-copy"></i>
               </button>
               <button @click="openAddModal(slot.id)" class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center hover:bg-emerald-500 hover:text-white active:scale-90 transition">
                 <i class="ph-bold ph-plus"></i>
@@ -1047,6 +1059,68 @@
     </div>
   </div>
 
+  <!-- MODAL KOPIOWANIA JADŁOSPISU Z INNEGO DNIA -->
+  <div v-if="copyModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="modal-sheet bg-slate-900 border-t sm:border border-slate-700 w-full max-w-md rounded-t-3xl sm:rounded-3xl px-5 pt-5 space-y-3 flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-2 shrink-0">
+        <h3 class="font-bold text-base text-white min-w-0">
+          Kopiuj <span class="text-sky-400">{{ copyModal.scope === 'day' ? 'cały dzień' : getSlotName(copyModal.scope) }}</span>
+        </h3>
+        <button @click="copyModal.open = false" class="text-slate-400 hover:text-white p-1 shrink-0"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <p class="text-[11px] text-slate-400 shrink-0">
+        Wpisy zostaną dopisane do dnia <strong class="text-slate-200">{{ selectedDate }}</strong>.
+      </p>
+
+      <!-- Skąd kopiujemy -->
+      <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 space-y-2 shrink-0">
+        <span class="text-xs font-semibold text-slate-300">Skopiuj z dnia:</span>
+        <div class="flex gap-1.5 flex-wrap">
+          <button v-for="opt in copyQuickDates" :key="opt.date" @click="copyModal.sourceDate = opt.date"
+                  :class="copyModal.sourceDate === opt.date ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'"
+                  class="px-2.5 py-1.5 rounded-lg text-xs font-bold">{{ opt.label }}</button>
+        </div>
+        <input type="date" v-model="copyModal.sourceDate"
+               class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200">
+      </div>
+
+      <!-- Co zostanie skopiowane -->
+      <div class="overflow-y-auto flex-1 min-h-0 space-y-2 pr-1 -mr-1">
+        <div v-if="!copyPreview.entries.length"
+             class="text-center text-xs text-slate-500 italic py-8 px-4 leading-relaxed">
+          W dniu {{ copyModal.sourceDate }} nie ma nic zapisanego
+          {{ copyModal.scope === 'day' ? '' : 'w tej porze dnia' }}.
+        </div>
+        <template v-else>
+          <div class="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-xs text-slate-300 flex justify-between">
+            <span><strong class="text-white">{{ copyPreview.entries.length }}</strong> {{ plural(copyPreview.entries.length, 'pozycja', 'pozycje', 'pozycji') }}</span>
+            <span class="text-emerald-400 font-bold">{{ copyPreview.netCarbs.toFixed(1) }} g W.Netto</span>
+            <span class="text-rose-400 font-bold">{{ copyPreview.kcal.toFixed(0) }} kcal</span>
+          </div>
+          <div v-for="entry in copyPreview.entries" :key="entry.entryId"
+               class="bg-slate-800/90 border border-slate-700/80 rounded-xl px-3 py-2 flex justify-between items-center gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="w-2 h-2 rounded-full shrink-0" :class="getEntryBadgeColor(entry)"></span>
+                <span class="font-semibold text-sm text-white break-words">{{ entry.food.name }}</span>
+              </div>
+              <span class="text-[11px] text-slate-400">
+                {{ getSlotName(entry.slotId).split(' / ')[0] }} · {{ formatEntryAmount(entry) }}
+              </span>
+            </div>
+            <span class="text-xs font-bold text-slate-300 shrink-0">{{ calcMacro(entry.food.kcal, entry.grams).toFixed(0) }} kcal</span>
+          </div>
+        </template>
+      </div>
+
+      <button @click="confirmCopyDay" :disabled="!copyPreview.entries.length"
+              class="w-full bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold py-3 rounded-xl text-sm shrink-0 active:scale-98 transition">
+        Skopiuj {{ copyPreview.entries.length || '' }} {{ plural(copyPreview.entries.length, 'pozycję', 'pozycje', 'pozycji') }}
+      </button>
+    </div>
+  </div>
+
   <!-- POWIADOMIENIE O ZAPISIE -->
   <div class="fixed left-0 right-0 flex justify-center px-4 z-50 pointer-events-none"
        style="bottom: calc(4.75rem + env(safe-area-inset-bottom))">
@@ -1470,6 +1544,72 @@ createApp({
       });
       saveAll();
       activeTab.value = 'diary';
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* KOPIOWANIE JADŁOSPISU Z INNEGO DNIA                                  */
+    /* ------------------------------------------------------------------ */
+
+    // Polska odmiana rzeczownika po liczbie (1 pozycja, 2 pozycje, 5 pozycji)
+    const plural = (count, one, few, many) => {
+      const n = Math.abs(count);
+      if (n === 1) return one;
+      const last = n % 10;
+      const lastTwo = n % 100;
+      if (last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14)) return few;
+      return many;
+    };
+
+    const copyModal = reactive({ open: false, scope: 'day', sourceDate: '' });
+
+    const shiftDate = (dateStr, days) => {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const copyQuickDates = computed(() => [
+      { label: 'Wczoraj', date: shiftDate(selectedDate.value, -1) },
+      { label: 'Przedwczoraj', date: shiftDate(selectedDate.value, -2) },
+      { label: 'Tydzień temu', date: shiftDate(selectedDate.value, -7) }
+    ]);
+
+    const openCopyModal = (scope) => {
+      copyModal.scope = scope;
+      copyModal.sourceDate = shiftDate(selectedDate.value, -1);
+      copyModal.open = true;
+    };
+
+    const copyPreview = computed(() => {
+      const source = (diary[copyModal.sourceDate] || [])
+        .filter(e => copyModal.scope === 'day' || e.slotId === copyModal.scope);
+      return source.reduce((acc, e) => {
+        acc.entries.push(e);
+        acc.kcal += (e.food.kcal * e.grams) / 100;
+        acc.netCarbs += (getNetCarbs(e.food) * e.grams) / 100;
+        return acc;
+      }, { entries: [], kcal: 0, netCarbs: 0 });
+    });
+
+    const confirmCopyDay = () => {
+      const source = copyPreview.value.entries;
+      if (!source.length) return;
+      if (!diary[selectedDate.value]) diary[selectedDate.value] = [];
+
+      source.forEach(entry => {
+        const copy = JSON.parse(JSON.stringify(entry));
+        copy.entryId = 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        // Kopiując pojedynczą porę dnia zawsze lądujemy w tej samej porze u celu
+        if (copyModal.scope !== 'day') copy.slotId = copyModal.scope;
+        diary[selectedDate.value].push(copy);
+      });
+
+      saveAll();
+      copyModal.open = false;
+      const what = copyModal.scope === 'day'
+        ? 'jadłospis'
+        : getSlotName(copyModal.scope).split(' / ')[0].toLowerCase();
+      showToast(`Skopiowano ${what} z ${copyModal.sourceDate} (${source.length} poz.)`);
     };
 
     const removeDiaryEntry = (entryId) => {
@@ -2120,6 +2260,7 @@ createApp({
       addModal, openAddModal, openQuickAddFromDb, modalFilteredFoods, confirmAddFood,
       getNetCarbs, calcMacro, calcEntryNetCarbs,
       getSlotEntries, getSlotTotals, getSlotName, removeDiaryEntry,
+      copyModal, copyQuickDates, copyPreview, openCopyModal, confirmCopyDay, plural,
       dailyTotals, remainingMacro, netCarbsStatus,
       getKetoBadgeColor, getKetoLabelStyle,
       recalculateKetoTargets, dailyAdviceSummary, smartFoodSuggestions, quickAddSuggestion,
